@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import { 
   Users, UserPlus, Search, Edit2, CheckCircle2, 
-  XCircle, Smartphone, AlertCircle, Loader2, RefreshCw 
+  XCircle, Smartphone, AlertCircle, Loader2, RefreshCw, Unlink 
 } from 'lucide-react'
 
 export default function EmployeeManager() {
@@ -201,6 +201,44 @@ export default function EmployeeManager() {
     }
   }
 
+  // فك ارتباط جهاز الموظف (في حال تغيير الهاتف)
+  const handleUnlinkDevice = async (emp) => {
+    if (
+      !window.confirm(
+        `هل أنت متأكد من فك ارتباط هاتف الموظف "${emp.name}"؟\n\nعند فك الارتباط، سيتمكن الموظف من استخدام هاتفه الجديد لتسجيل البصمة وسيطلب النظام موافقتك على الهاتف الجديد.`
+      )
+    ) {
+      return
+    }
+
+    try {
+      setLoading(true)
+      const { error } = await supabase
+        .from('employees')
+        .update({
+          device_id: null,
+          device_status: 'none',
+          device_registered_at: null,
+        })
+        .eq('id', emp.id)
+
+      if (error) throw error
+      setSuccessMsg(`تم فك ارتباط هاتف الموظف (${emp.name}) بنجاح. يمكنه الآن ربط هاتفه الجديد.`)
+      fetchEmployees()
+      if (editingEmployee && editingEmployee.id === emp.id) {
+        setEditingEmployee((prev) => ({
+          ...prev,
+          device_id: null,
+          device_status: 'none',
+        }))
+      }
+    } catch (err) {
+      setErrorMsg('فشل فك ارتباط الجهاز: ' + err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* الشريط العلوي والأزرار */}
@@ -310,6 +348,15 @@ export default function EmployeeManager() {
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
+                        {emp.device_status !== 'none' && (
+                          <button
+                            onClick={() => handleUnlinkDevice(emp)}
+                            className="p-1.5 rounded-lg text-amber-500 hover:text-amber-700 hover:bg-amber-50 transition cursor-pointer"
+                            title="فك ارتباط هاتف الموظف (في حال تغيير الجهاز)"
+                          >
+                            <Unlink className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => toggleEmployeeStatus(emp)}
                           className={`p-1.5 rounded-lg transition cursor-pointer ${
@@ -410,6 +457,39 @@ export default function EmployeeManager() {
                   className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
                 />
               </div>
+
+              {editingEmployee && (
+                <div className="p-3.5 rounded-2xl border border-slate-200 bg-slate-50 space-y-2.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                      <Smartphone className="w-4 h-4 text-blue-600" />
+                      الهاتف المرتبط بالموظف:
+                    </span>
+                    {getDeviceBadge(editingEmployee.device_status)}
+                  </div>
+
+                  {editingEmployee.device_id ? (
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-slate-200/60">
+                      <div className="font-mono text-[11px] text-slate-500 truncate select-all">
+                        معرّف الجهاز: {editingEmployee.device_id.slice(0, 12)}...
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleUnlinkDevice(editingEmployee)}
+                        className="inline-flex items-center justify-center gap-1.5 text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3 py-1.5 rounded-xl transition cursor-pointer"
+                        title="فك ارتباط الهاتف للسماح بتسجيل هاتف جديد"
+                      >
+                        <Unlink className="w-3.5 h-3.5" />
+                        <span>فك ارتباط الهاتف (تغيير الجهاز)</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-500 pt-0.5">
+                      لا يوجد هاتف مرتبط حالياً بهذا الموظف. يمكنه تسجيل أي هاتف جديد فورياً.
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="pt-3 flex gap-2.5 justify-end">
                 <button

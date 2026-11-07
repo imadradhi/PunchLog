@@ -6,3 +6,29 @@
   }
 }
 
+/* إخفاء المربع الداخلي في ماسح الباركود لتفعيل كامل الشاشة */
+#qr-reader {
+  border: none !important;
+}
+#qr-reader #qr-shaded-region {
+  display: none !important;
+}
+#qr-reader .scan-region-highlight {
+  display: none !important;
+}
+#qr-reader video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: 1.5rem !important;
+}
+
+@keyframes scanBeam {
+  0% { top: 5%; opacity: 0.8; }
+  50% { top: 90%; opacity: 1; }
+  100% { top: 5%; opacity: 0.8; }
+}
+
+.animate-scan-beam {
+  animation: scanBeam 2.5s ease-in-out infinite;
+}
