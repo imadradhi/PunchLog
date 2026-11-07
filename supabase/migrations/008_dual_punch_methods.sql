@@ -134,11 +134,11 @@ BEGIN
             RETURN jsonb_build_object('success', false, 'error', 'موقع العمل المحدد غير موجود.');
         END IF;
 
-        -- التحقق من دقة إشارة الـ GPS
-        IF p_accuracy IS NULL OR p_accuracy > 100 THEN
+        -- التحقق من دقة إشارة الـ GPS (الحد الأقصى 300م ليناسب الهواتف داخل المباني وتجارب المتصفح)
+        IF p_accuracy IS NOT NULL AND p_accuracy > 300 THEN
             RETURN jsonb_build_object(
                 'success', false,
-                'error', format('إشارة GPS ضعيفة (الدقة ±%sم بينما الحد الأقصى 100م). يرجى الوقوف في مكان مكشوف وتفعيل دقة الموقع العالية.', round(coalesce(p_accuracy, 0)::numeric))
+                'error', format('إشارة GPS ضعيفة جداً (الدقة ±%sم بينما الحد الأقصى 300م). يرجى الوقوف في مكان مكشوف وتفعيل دقة الموقع العالية.', round(coalesce(p_accuracy, 0)::numeric))
             );
         END IF;
 
@@ -232,3 +232,4 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.check_in_rpc(TEXT, UUID, TEXT, UUID, DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, TEXT) TO anon, authenticated;
+

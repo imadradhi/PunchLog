@@ -152,11 +152,11 @@ serve(async (req: Request) => {
 
     // 6. التحقق من صلاحية دقة GPS (GPS Accuracy Check)
     const userAccuracy = Number(accuracy) || 0
-    if (userAccuracy > 100) {
+    if (userAccuracy > 300) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: `إشارة الـ GPS ضعيفة وغير دقيقة (الدقة الحالية: ±${Math.round(userAccuracy)}م والحد المقبول 100م). يرجى الوقوف بالقرب من نافذة أو مكان مكشوف وتفعيل دقة الموقع العالية.`,
+          error: `إشارة الـ GPS ضعيفة جداً (الدقة الحالية: ±${Math.round(userAccuracy)}م والحد الأقصى المقبول 300م). يرجى التواجد في مكان مكشوف أو تفعيل دقة الموقع العالية.`,
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       )
