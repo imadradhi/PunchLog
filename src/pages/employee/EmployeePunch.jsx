@@ -4,7 +4,7 @@ import { Html5Qrcode } from 'html5-qrcode'
 import { 
   QrCode, Smartphone, MapPin, User, CheckCircle2, 
   AlertCircle, Camera, RefreshCw, X, ShieldCheck, 
-  ArrowDownRight, ArrowUpLeft, Loader2, Navigation, Clock 
+  ArrowDownRight, ArrowUpLeft, Loader2, Navigation, Clock, Search, ArrowRight 
 } from 'lucide-react'
 import { getOrCreateDeviceId, calculateDistance, formatArabicDateTime } from '../../lib/utils'
 import { submitCheckIn } from '../../lib/checkInService'
@@ -12,11 +12,13 @@ import { submitCheckIn } from '../../lib/checkInService'
 export default function EmployeePunch() {
   const deviceId = getOrCreateDeviceId()
 
-  // حالة الموظف
+  // حالة الموظف والتحقق
   const [employeeCode, setEmployeeCode] = useState(
     localStorage.getItem('punchlog_last_code') || ''
   )
-  const [rememberCode, setRememberCode] = useState(true)
+  const [verifiedEmployee, setVerifiedEmployee] = useState(null)
+  const [verifying, setVerifying] = useState(false)
+  const [verifyError, setVerifyError] = useState('')
 
   // حالة الموقع و GPS
   const [location, setLocation] = useState(null)
@@ -34,7 +36,7 @@ export default function EmployeePunch() {
   // نتيجة العملية (نجاح / تنبيه / خطأ)
   const [punchResult, setPunchResult] = useState(null)
 
-  // جلب موقع العمل الأساسي
+  // جلب موقع العمل الأساسي عند التحميل
   useEffect(() => {
     async function fetchWorkLocation() {
       try {
@@ -54,6 +56,63 @@ export default function EmployeePunch() {
     }
     fetchWorkLocation()
   }, [])
+
+  // التحقق من هوية واسم الموظف عبر الرقم
+  const handleVerifyEmployee = async (e) => {
+    if (e) e.preventDefault()
+    setVerifyError('')
+    setPunchResult(null)
+
+    const cleanCode = employeeCode.trim()
+    if (!cleanCode) {
+      setVerifyError('يرجى إدخال الرقم التعريفي للموظف.')
+      return
+    }
+
+    try {
+      setVerifying(true)
+      const { data, error } = await supabase
+        .from('employees')
+        .select('id, name, employee_code, department, is_active, device_status, device_id')
+        .eq('employee_code', cleanCode)
+        .maybeSingle()
+
+      if (error) throw error
+
+      if (!data) {
+        setVerifiedEmployee(null)
+        setVerifyError(`الرقم (${cleanCode}) غير مسجل في النظام. يرجى التأكد من الرقم لدى الإدارة.`)
+        return
+      }
+
+      if (!data.is_active) {
+        setVerifiedEmployee(null)
+        setVerifyError(`حساب الموظف (${data.name}) موقوف حالياً. لا يمكن المتابعة.`)
+        return
+      }
+
+      // تم التحقق بنجاح من هوية الموظف
+      setVerifiedEmployee(data)
+      localStorage.setItem('punchlog_last_code', cleanCode)
+
+      // طلب الموقع الجغرافي تلقائياً فور التأكد من الموظف لراحة المستخدم
+      if (gpsStatus === 'idle') {
+        requestLocation()
+      }
+    } catch (err) {
+      console.error('Verify error:', err)
+      setVerifyError(err.message || 'حدث خطأ في الاتصال بقاعدة البيانات.')
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  // إعادة تعيين واختيار موظف آخر
+  const handleResetEmployee = () => {
+    setVerifiedEmployee(null)
+    setVerifyError('')
+    setPunchResult(null)
+  }
 
   // دالة طلب وتحديث إحداثيات GPS للموظف
   const requestLocation = () => {
@@ -76,7 +135,6 @@ export default function EmployeePunch() {
         setUserCoords(coords)
         setGpsStatus('granted')
 
-        // حساب المسافة إذا كان موقع العمل متوفراً
         if (location) {
           const distance = calculateDistance(
             coords.lat,
@@ -106,7 +164,7 @@ export default function EmployeePunch() {
     )
   }
 
-  // إعادة حساب المسافة عند جلب موقع العمل
+  // إعادة حساب المسافة عند توفر الموقع
   useEffect(() => {
     if (location && userCoords) {
       const distance = calculateDistance(
@@ -122,8 +180,8 @@ export default function EmployeePunch() {
 
   // بدء مسح الكاميرا للباركود
   const startScanner = async () => {
-    if (!employeeCode.trim()) {
-      alert('يرجى إدخال الرقم الوظيفي أولاً.')
+    if (!verifiedEmployee) {
+      alert('يرجى التحقق من الرقم التعريفي للموظف أولاً.')
       return
     }
 
@@ -132,14 +190,9 @@ export default function EmployeePunch() {
       return
     }
 
-    if (rememberCode) {
-      localStorage.setItem('punchlog_last_code', employeeCode.trim().toUpperCase())
-    }
-
     setPunchResult(null)
     setIsScanning(true)
 
-    // انتظار رندر عنصر الكانفاس في الـ DOM
     setTimeout(async () => {
       try {
         const html5QrCode = new Html5Qrcode('qr-reader')
@@ -152,12 +205,10 @@ export default function EmployeePunch() {
         }
 
         await html5QrCode.start(
-          { facingMode: 'environment' }, // الكاميرا الخلفية للهاتف
+          { facingMode: 'environment' },
           config,
           handleScanSuccess,
-          (errorMessage) => {
-            // أخطاء الإطارات الفارغة (تجاهل أثناء المسح)
-          }
+          () => {}
         )
       } catch (err) {
         console.error('Camera start failed:', err)
@@ -183,19 +234,17 @@ export default function EmployeePunch() {
 
   // معالجة قراءة الباركود بنجاح
   const handleScanSuccess = async (decodedText) => {
-    // إيقاف الكاميرا فوراً لمنع التكرار
     await stopScanner()
 
     let token = decodedText
     let targetLocationId = location?.id
 
-    // فحص ما إذا كان الرمز بتنسيق JSON المعياري { t: "...", l: "..." }
     try {
       const parsed = JSON.parse(decodedText)
       if (parsed.t) token = parsed.t
       if (parsed.l) targetLocationId = parsed.l
     } catch {
-      // الرمز كنص خام
+      // نص خام
     }
 
     await processPunch(token, targetLocationId)
@@ -208,7 +257,7 @@ export default function EmployeePunch() {
       setPunchResult(null)
 
       const response = await submitCheckIn({
-        employee_code: employeeCode,
+        employee_code: verifiedEmployee.employee_code,
         device_id: deviceId,
         token: token,
         location_id: locId || location?.id,
@@ -218,7 +267,6 @@ export default function EmployeePunch() {
       })
 
       if (response.success) {
-        // اهتزاز الهاتف عند النجاح
         if (navigator.vibrate) navigator.vibrate([100, 50, 100])
         setPunchResult({
           status: 'success',
@@ -260,52 +308,130 @@ export default function EmployeePunch() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white flex flex-col justify-between p-4 sm:p-6 selection:bg-blue-600">
-      <div className="max-w-md w-full mx-auto space-y-5">
+      <div className="max-w-md w-full mx-auto space-y-4">
         {/* الترويسة وشعار التطبيق */}
-        <header className="text-center pt-2">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600/20 text-blue-400 mb-2.5 border border-blue-500/30 shadow-lg shadow-blue-500/10">
-            <QrCode className="w-7 h-7" />
+        <header className="text-center pt-1">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-blue-600/20 text-blue-400 mb-2 border border-blue-500/30 shadow-lg shadow-blue-500/10">
+            <QrCode className="w-6 h-6" />
           </div>
           <h1 className="text-xl font-bold tracking-tight text-white">PunchLog</h1>
-          <p className="text-xs text-slate-400 mt-0.5">بصمة الحضور والانصراف الذكية</p>
+          <p className="text-xs text-slate-400">بصمة الحضور والانصراف الذكية</p>
         </header>
 
-        {/* بطاقة إدخال الرقم الوظيفي ومعرّف الجهاز */}
-        <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl backdrop-blur-md space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
-              <span className="flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5 text-blue-400" />
-                الرقم التعريفي للموظف (4 أرقام)
-              </span>
-              <span className="text-[10px] text-slate-500 font-mono">مثال: 1001</span>
-            </label>
-            <input
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              maxLength={6}
-              value={employeeCode}
-              onChange={(e) => setEmployeeCode(e.target.value.trim())}
-              placeholder="1001"
-              className="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-2xl px-4 py-3 text-lg font-mono text-center font-bold tracking-widest placeholder-slate-700 transition outline-none"
-            />
-          </div>
+        {/* ======================================================== */}
+        {/* 1. قسم الرقم الوظيفي والتحقق من هوية واسم الموظف */}
+        {/* ======================================================== */}
+        {!verifiedEmployee ? (
+          <form
+            onSubmit={handleVerifyEmployee}
+            className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl backdrop-blur-md space-y-3"
+          >
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-blue-400" />
+                  الرقم التعريفي للموظف (4 أرقام)
+                </span>
+                <span className="text-[10px] text-slate-500 font-mono">مثال: 1001، 1002</span>
+              </label>
 
-          {/* معرّف الجهاز */}
-          <div className="bg-slate-950/60 p-3 rounded-2xl border border-slate-800/80 flex items-center justify-between text-xs">
-            <div className="flex items-center gap-2 text-slate-400">
-              <Smartphone className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-              <span>معرّف هذا الهاتف:</span>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  value={employeeCode}
+                  onChange={(e) => {
+                    setEmployeeCode(e.target.value.trim())
+                    setVerifyError('')
+                  }}
+                  placeholder="1001"
+                  required
+                  autoFocus
+                  className="flex-1 bg-slate-950 border border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-2xl px-4 py-3 text-lg font-mono text-center font-bold tracking-widest placeholder-slate-700 transition outline-none"
+                />
+
+                <button
+                  type="submit"
+                  disabled={verifying || !employeeCode.trim()}
+                  className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-5 py-3 rounded-2xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-blue-600/30 transition cursor-pointer"
+                >
+                  {verifying ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>
+                      <span>تأكيد الهوية</span>
+                      <ArrowRight className="w-3.5 h-3.5 rtl:rotate-180" />
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
-            <span className="font-mono text-[11px] text-slate-300 select-all truncate max-w-[150px]">
-              {deviceId.slice(0, 8)}...{deviceId.slice(-4)}
-            </span>
-          </div>
-        </div>
 
-        {/* بطاقة التحقق من الموقع الجغرافي (GPS Geofence) */}
-        <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+            {verifyError && (
+              <div className="p-3 rounded-2xl bg-red-950/60 border border-red-800/60 text-red-200 text-xs flex items-start gap-2 animate-in fade-in">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                <span>{verifyError}</span>
+              </div>
+            )}
+
+            {/* معرّف الجهاز */}
+            <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <Smartphone className="w-3.5 h-3.5 text-blue-400" />
+                معرّف هذا الهاتف:
+              </span>
+              <span className="font-mono text-[10px] text-slate-300 select-all">
+                {deviceId.slice(0, 8)}...{deviceId.slice(-4)}
+              </span>
+            </div>
+          </form>
+        ) : (
+          /* بطاقة الموظف المؤكد هويته */
+          <div className="bg-slate-900/90 border border-blue-500/40 rounded-3xl p-4 shadow-xl backdrop-blur-md relative overflow-hidden animate-in fade-in">
+            <div className="absolute top-0 right-0 w-24 h-24 bg-blue-600/10 rounded-full blur-2xl -mr-6 -mt-6 pointer-events-none" />
+
+            <div className="flex items-start justify-between gap-3 relative z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-blue-600/20 text-blue-400 border border-blue-500/40 flex items-center justify-center font-bold text-lg">
+                  {verifiedEmployee.name.charAt(0)}
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
+                      <CheckCircle2 className="w-2.5 h-2.5" />
+                      تم التحقق
+                    </span>
+                    <span className="text-xs font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded-md font-semibold">
+                      #{verifiedEmployee.employee_code}
+                    </span>
+                  </div>
+                  <h2 className="text-base font-bold text-white mt-1 leading-tight">
+                    {verifiedEmployee.name}
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {verifiedEmployee.department}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleResetEmployee}
+                className="text-[11px] font-semibold text-slate-400 hover:text-rose-400 bg-slate-800 hover:bg-slate-700/80 border border-slate-700 px-2.5 py-1.5 rounded-xl transition cursor-pointer"
+                title="تغيير الموظف"
+              >
+                تغيير
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* 2. قسم التحقق من الموقع الجغرافي (GPS Geofence) */}
+        {/* ======================================================== */}
+        <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3.5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <MapPin className="w-4 h-4 text-blue-400" />
@@ -324,29 +450,29 @@ export default function EmployeePunch() {
             </button>
           </div>
 
-          {/* حالة الموقع الحالية */}
+          {/* حالات الموقع */}
           {!location && (
-            <div className="p-3.5 rounded-2xl bg-amber-950/50 border border-amber-900/50 text-amber-200 text-xs flex items-center gap-2">
+            <div className="p-3 rounded-2xl bg-amber-950/50 border border-amber-900/50 text-amber-200 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>جاري انتظار تطبيق سكربت قاعدة البيانات (SQL) لجلب إحداثيات موقع العمل...</span>
+              <span>جاري انتظار تحميل إحداثيات موقع العمل...</span>
             </div>
           )}
 
           {location && gpsStatus === 'idle' && (
-            <div className="p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800 text-slate-400 text-xs text-center">
-              اضغط على "تحديد موقعي" للتأكد من وجودك داخل نطاق المنشأة قبل المسح.
+            <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800 text-slate-400 text-xs text-center">
+              اضغط على "تحديد موقعي" للتحقق من تواجدك داخل مقر المنشأة قبل المسح.
             </div>
           )}
 
           {location && gpsStatus === 'locating' && (
-            <div className="p-3.5 rounded-2xl bg-blue-950/40 border border-blue-900/50 text-blue-300 text-xs flex items-center justify-center gap-2">
+            <div className="p-3 rounded-2xl bg-blue-950/40 border border-blue-900/50 text-blue-300 text-xs flex items-center justify-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
               <span>جاري الاتصال بالأقمار الصناعية وتحديد إحداثياتك بدقة...</span>
             </div>
           )}
 
           {gpsStatus === 'denied' && (
-            <div className="p-3.5 rounded-2xl bg-red-950/50 border border-red-900/50 text-red-200 text-xs flex items-start gap-2">
+            <div className="p-3 rounded-2xl bg-red-950/50 border border-red-900/50 text-red-200 text-xs flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
               <span>{gpsError}</span>
             </div>
@@ -355,7 +481,7 @@ export default function EmployeePunch() {
           {location && gpsStatus === 'granted' && (
             <div className="space-y-2">
               <div
-                className={`p-3.5 rounded-2xl border flex items-center justify-between text-xs font-semibold ${
+                className={`p-3 rounded-2xl border flex items-center justify-between text-xs font-semibold ${
                   isInRange
                     ? 'bg-emerald-950/40 border-emerald-800/50 text-emerald-300'
                     : 'bg-amber-950/40 border-amber-800/50 text-amber-300'
@@ -369,7 +495,7 @@ export default function EmployeePunch() {
                   )}
                   <span>
                     {isInRange
-                      ? `أنت داخل نطاق العمل (${distanceToWork ?? 0} متراً من المركز)`
+                      ? `أنت داخل نطاق العمل (${distanceToWork ?? 0} متراً من المقر)`
                       : `أنت خارج نطاق العمل (${distanceToWork ?? 'غير محدد'} متراً - المسموح ${location.radius_m}م)`}
                   </span>
                 </div>
@@ -384,13 +510,15 @@ export default function EmployeePunch() {
           )}
         </div>
 
-        {/* زر فتح الكاميرا ومسح الباركود */}
+        {/* ======================================================== */}
+        {/* 3. زر مسح الباركود بالكاميرا */}
+        {/* ======================================================== */}
         <div>
           <button
             onClick={startScanner}
-            disabled={!isInRange || !employeeCode.trim() || submitting}
+            disabled={!verifiedEmployee || !isInRange || submitting}
             className={`w-full py-4 px-6 rounded-2xl font-bold text-sm shadow-xl transition flex items-center justify-center gap-2.5 cursor-pointer ${
-              isInRange && employeeCode.trim() && !submitting
+              verifiedEmployee && isInRange && !submitting
                 ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/30 active:scale-[0.98]'
                 : 'bg-slate-800/80 text-slate-500 border border-slate-800 cursor-not-allowed opacity-60'
             }`}
@@ -403,24 +531,31 @@ export default function EmployeePunch() {
             ) : (
               <>
                 <Camera className="w-5 h-5" />
-                <span>مسح باركود الحضور / الانصراف</span>
+                <span>
+                  {verifiedEmployee
+                    ? `مسح باركود البصمة باسم (${verifiedEmployee.name.split(' ')[0]})`
+                    : 'مسح باركود الحضور / الانصراف'}
+                </span>
               </>
             )}
           </button>
 
-          {!isInRange && gpsStatus === 'granted' && (
+          {!verifiedEmployee && (
+            <p className="text-[11px] text-slate-500 text-center mt-2">
+              * أدخل رقمك الوظيفي أولاً واضغط "تأكيد الهوية" للتعرف على اسمك.
+            </p>
+          )}
+
+          {verifiedEmployee && !isInRange && gpsStatus === 'granted' && (
             <p className="text-[11px] text-amber-400/90 text-center mt-2">
               * يجب أن تتواجد داخل نطاق المقر لتفعيل زر مسح الباركود.
             </p>
           )}
-          {!employeeCode.trim() && (
-            <p className="text-[11px] text-slate-500 text-center mt-2">
-              * أدخل رقمك الوظيفي أولاً لتفعيل البصمة.
-            </p>
-          )}
         </div>
 
-        {/* بطاقة عرض النتيجة (نجاح / تنبيه / خطأ) */}
+        {/* ======================================================== */}
+        {/* 4. بطاقة عرض النتيجة (نجاح / تنبيه / خطأ) */}
+        {/* ======================================================== */}
         {punchResult && (
           <div
             className={`p-5 rounded-3xl border shadow-2xl transition-all animate-in fade-in ${
@@ -472,7 +607,9 @@ export default function EmployeePunch() {
         )}
       </div>
 
-      {/* نافذة الكاميرا والماسح المنبثقة */}
+      {/* ======================================================== */}
+      {/* 5. نافذة الكاميرا والماسح المنبثقة */}
+      {/* ======================================================== */}
       {isScanning && (
         <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-3xl p-5 shadow-2xl relative">
@@ -495,14 +632,14 @@ export default function EmployeePunch() {
             </div>
 
             <p className="text-[11px] text-slate-400 text-center mt-3">
-              يتم قراءة الرمز لحظياً والتحقق من صلاحيته في الخادم فور مسحه.
+              مسح البصمة للموظف: <strong className="text-white">{verifiedEmployee?.name}</strong>
             </p>
           </div>
         </div>
       )}
 
       {/* التذييل */}
-      <footer className="text-center pt-6 pb-2 text-[11px] text-slate-500">
+      <footer className="text-center pt-4 pb-2 text-[11px] text-slate-500">
         <a href="/admin" className="text-slate-400 hover:text-blue-400 transition underline underline-offset-4">
           بوابة الإدارة والمشرفين &larr;
         </a>
