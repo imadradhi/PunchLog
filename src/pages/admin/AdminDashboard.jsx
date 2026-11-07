@@ -6,14 +6,15 @@ import LocationManager from '../../components/admin/LocationManager'
 import QrDisplay from '../../components/admin/QrDisplay'
 import DeviceRequests from '../../components/admin/DeviceRequests'
 import AttendanceLog from '../../components/admin/AttendanceLog'
+import AdminAccountsManager from '../../components/admin/AdminAccountsManager'
 import { 
   ShieldCheck, Users, MapPin, QrCode, 
-  History, Smartphone, LogOut, Loader2, ArrowRight 
+  History, Smartphone, LogOut, Loader2, ArrowRight, UserCog 
 } from 'lucide-react'
 
 export default function AdminDashboard() {
-  const { user, loading, signOut } = useAuth()
-  const [activeTab, setActiveTab] = useState('employees') // 'employees' | 'location' | 'qr' | 'devices' | 'attendance'
+  const { adminUser, loading, signOut } = useAuth()
+  const [activeTab, setActiveTab] = useState('employees') // 'employees' | 'location' | 'qr' | 'devices' | 'attendance' | 'admins'
 
   if (loading) {
     return (
@@ -25,7 +26,7 @@ export default function AdminDashboard() {
   }
 
   // إذا لم يكن مسجل الدخول، اعرض شاشة تسجيل الدخول
-  if (!user) {
+  if (!adminUser) {
     return <AdminLogin />
   }
 
@@ -35,6 +36,7 @@ export default function AdminDashboard() {
     { id: 'qr', label: 'شاشة الباركود المتغير (QR)', icon: QrCode },
     { id: 'devices', label: 'طلبات ربط الأجهزة', icon: Smartphone },
     { id: 'attendance', label: 'سجل الحضور والانصراف', icon: History },
+    { id: 'admins', label: 'حسابات المدراء', icon: UserCog },
   ]
 
   return (
@@ -68,11 +70,14 @@ export default function AdminDashboard() {
 
               <div className="h-6 w-px bg-slate-200 hidden sm:block" />
 
+              {/* بيانات المدير الحالي من قاعدة البيانات */}
               <div className="text-left hidden sm:block">
-                <p className="text-xs font-semibold text-slate-800 truncate max-w-[180px]">
-                  {user.email}
+                <p className="text-xs font-bold text-slate-800 truncate max-w-[180px]">
+                  {adminUser.name || adminUser.email}
                 </p>
-                <p className="text-[10px] text-emerald-600 font-medium">مدير معتمد</p>
+                <p className="text-[10px] text-emerald-600 font-medium">
+                  {adminUser.role === 'super_admin' ? 'مدير عام' : 'مدير معتمد'} ({adminUser.email})
+                </p>
               </div>
 
               <button
@@ -117,6 +122,7 @@ export default function AdminDashboard() {
         {activeTab === 'qr' && <QrDisplay />}
         {activeTab === 'devices' && <DeviceRequests />}
         {activeTab === 'attendance' && <AttendanceLog />}
+        {activeTab === 'admins' && <AdminAccountsManager />}
       </main>
     </div>
   )

@@ -116,10 +116,15 @@ export default function AdminLogin({ onLoginSuccess }) {
           </button>
         </form>
 
-        <div className="mt-8 pt-4 border-t border-slate-700/60 text-center">
-          <a href="/" className="text-xs text-slate-400 hover:text-blue-400 transition">
-            العودة لشاشة الموظف &larr;
-          </a>
+        <div className="mt-8 pt-4 border-t border-slate-700/60 text-center space-y-2">
+          <p className="text-[11px] text-slate-500">
+            الحساب الافتراضي في جدول المدراء: <code className="text-blue-400 font-mono">admin@punchlog.com</code> | كلمة المرور: <code className="text-blue-400 font-mono">admin123</code>
+          </p>
+          <div>
+            <a href="/" className="text-xs text-slate-400 hover:text-blue-400 transition">
+              العودة لشاشة الموظف &larr;
+            </a>
+          </div>
         </div>
       </div>
     </div>
