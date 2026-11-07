@@ -62,12 +62,24 @@ export default function AdminAccountsManager() {
 
     try {
       setSubmitting(true)
-      const { data, error } = await supabase.rpc('create_admin', {
+      let { data, error } = await supabase.rpc('create_admin', {
         p_name: formData.name.trim(),
         p_username: formData.username.trim().toLowerCase(),
         p_password: formData.password,
         p_role: formData.role,
       })
+
+      // بديل ذكي في حال كانت قاعدة البيانات تستخدم p_email
+      if (error && (error.code === 'PGRST202' || error.message?.includes('schema cache'))) {
+        const fallbackRes = await supabase.rpc('create_admin', {
+          p_name: formData.name.trim(),
+          p_email: `${formData.username.trim().toLowerCase()}@punchlog.com`,
+          p_password: formData.password,
+          p_role: formData.role,
+        })
+        data = fallbackRes.data
+        error = fallbackRes.error
+      }
 
       if (error) throw error
 

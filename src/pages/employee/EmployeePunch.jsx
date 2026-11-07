@@ -276,16 +276,19 @@ export default function EmployeePunch() {
             <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
               <span className="flex items-center gap-1.5">
                 <User className="w-3.5 h-3.5 text-blue-400" />
-                الرقم الوظيفي الفريد
+                الرقم التعريفي للموظف (4 أرقام)
               </span>
-              <span className="text-[10px] text-slate-500">مثال: EMP101</span>
+              <span className="text-[10px] text-slate-500 font-mono">مثال: 1001</span>
             </label>
             <input
               type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
               value={employeeCode}
-              onChange={(e) => setEmployeeCode(e.target.value.toUpperCase())}
-              placeholder="أدخل رقمك الوظيفي"
-              className="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-2xl px-4 py-3 text-base font-mono text-center font-bold tracking-wider placeholder-slate-600 transition outline-none"
+              onChange={(e) => setEmployeeCode(e.target.value.trim())}
+              placeholder="1001"
+              className="w-full bg-slate-950 border border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-2xl px-4 py-3 text-lg font-mono text-center font-bold tracking-widest placeholder-slate-700 transition outline-none"
             />
           </div>
 

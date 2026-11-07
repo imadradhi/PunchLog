@@ -23,53 +23,64 @@ export const AuthProvider = ({ children }) => {
     setLoading(false)
   }, [])
 
-  // تسجيل الدخول بالاعتماد على جدول admins في قاعدة البيانات
-  const signIn = async (username, password) => {
+  // تسجيل الدخول الذكي باسم المستخدم
+  const signIn = async (usernameInput, password) => {
     if (!isConfigured) {
       throw new Error('يرجى ضبط بيانات الاتصال بـ Supabase في ملف .env أولاً')
     }
 
-    // 1. محاولة تسجيل الدخول عبر جدول المدراء المشفّر (باسم المستخدم)
-    const { data, error } = await supabase.rpc('admin_login', {
-      p_username: username.trim().toLowerCase(),
-      p_password: password,
-    })
+    const cleanInput = usernameInput.trim().toLowerCase()
 
-    if (!error && data) {
-      if (!data.success) {
-        throw new Error(data.error || 'فشل تسجيل الدخول')
-      }
+    // احتمالات اسم المستخدم (كنص مجرد أو كحساب بنطاق النظام)
+    const candidates = cleanInput.includes('@')
+      ? [cleanInput]
+      : [cleanInput, `${cleanInput}@punchlog.com`]
 
-      // حفظ جلسة المدير
-      const adminData = data.admin
-      setAdminUser(adminData)
-      localStorage.setItem('punchlog_admin_session', JSON.stringify(adminData))
-      return adminData
-    }
+    let lastError = null
 
-    // 2. محاولة بديلة عبر Supabase Auth في حال إدخال إيميل قديم
-    try {
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: username,
-        password,
-      })
-      if (!authError && authData?.user) {
-        const fallbackAdmin = {
-          id: authData.user.id,
-          name: authData.user.user_metadata?.name || 'مدير النظام',
-          username: authData.user.email?.split('@')[0] || 'admin',
-          email: authData.user.email,
-          role: 'admin',
+    for (const candidate of candidates) {
+      // 1. تجربة مع معامل p_username
+      try {
+        const { data, error } = await supabase.rpc('admin_login', {
+          p_username: candidate,
+          p_password: password,
+        })
+        if (!error && data?.success) {
+          const adminData = {
+            ...data.admin,
+            username: cleanInput,
+          }
+          setAdminUser(adminData)
+          localStorage.setItem('punchlog_admin_session', JSON.stringify(adminData))
+          return adminData
         }
-        setAdminUser(fallbackAdmin)
-        localStorage.setItem('punchlog_admin_session', JSON.stringify(fallbackAdmin))
-        return fallbackAdmin
+        if (data && !data.success) lastError = data.error
+      } catch (err) {
+        // الاستمرار للتجربة التالية
       }
-    } catch {
-      // تجاهل
+
+      // 2. تجربة مع معامل p_email
+      try {
+        const { data, error } = await supabase.rpc('admin_login', {
+          p_email: candidate,
+          p_password: password,
+        })
+        if (!error && data?.success) {
+          const adminData = {
+            ...data.admin,
+            username: cleanInput,
+          }
+          setAdminUser(adminData)
+          localStorage.setItem('punchlog_admin_session', JSON.stringify(adminData))
+          return adminData
+        }
+        if (data && !data.success) lastError = data.error
+      } catch (err) {
+        // الاستمرار للتجربة التالية
+      }
     }
 
-    throw new Error(error?.message || 'اسم المستخدم أو كلمة المرور غير صحيحة.')
+    throw new Error(lastError || 'بيانات الدخول غير صحيحة، يرجى التحقق من اسم المستخدم وكلمة المرور.')
   }
 
   // تسجيل الخروج
