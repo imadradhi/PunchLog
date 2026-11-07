@@ -156,6 +156,10 @@ export default function LocationManager() {
       return
     }
 
+    if (!window.confirm(`هل أنت متأكد من حفظ التعديلات الجديدة لموقع العمل "${name}" بنطاق (${radiusM} متر)؟`)) {
+      return
+    }
+
     try {
       setSaving(true)
       if (locationId) {

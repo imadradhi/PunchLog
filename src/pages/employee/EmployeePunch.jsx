@@ -328,17 +328,18 @@ export default function EmployeePunch() {
     }
   }
 
-  const formattedTime = currentTime.toLocaleTimeString('ar-SA', {
+  const formattedTime = currentTime.toLocaleTimeString('ar-EG-u-ca-gregory', {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
     hour12: true,
   })
 
-  const formattedDate = currentTime.toLocaleDateString('ar-SA', {
+  const formattedDate = currentTime.toLocaleDateString('ar-EG-u-ca-gregory', {
+    calendar: 'gregory',
     weekday: 'long',
     year: 'numeric',
-    month: 'short',
+    month: 'long',
     day: 'numeric',
   })
 
@@ -537,11 +538,7 @@ export default function EmployeePunch() {
             {/* أ) شاشة طريقة مسح الباركود (الكاميرا مفعلة بالكامل) */}
             {/* ---------------------------------------------------- */}
             {punchMethod === 'qr' && (
-              <div className="bg-white border border-slate-200/90 rounded-3xl p-5 shadow-sm space-y-4 text-center">
-                <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-2xl text-xs text-blue-900 leading-relaxed text-right">
-                  <strong>💡 ميزة مسح الباركود:</strong> لا تتطلب فحص الموقع الجغرافي؛ لأن الرمز يتجدد كل 10 ثوانٍ ولا يوجد إلا على شاشة الاستقبال داخل المقر.
-                </div>
-
+              <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-sm space-y-4 text-center">
                 <button
                   type="button"
                   onClick={startScanner}

@@ -38,12 +38,13 @@ export function getOrCreateDeviceId() {
 }
 
 /**
- * تنسيق التاريخ والوقت بالعربية
+ * تنسيق التاريخ والوقت بالعربية بالتقويم الميلادي حصراً
  */
 export function formatArabicDateTime(dateString) {
   if (!dateString) return '-'
   const date = new Date(dateString)
-  return new Intl.DateTimeFormat('ar-SA', {
+  return new Intl.DateTimeFormat('ar-EG-u-ca-gregory', {
+    calendar: 'gregory',
     year: 'numeric',
     month: 'short',
     day: 'numeric',

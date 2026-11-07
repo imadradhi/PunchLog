@@ -83,7 +83,11 @@ export default function AdminDashboard() {
               </div>
 
               <button
-                onClick={signOut}
+                onClick={() => {
+                  if (window.confirm('هل أنت متأكد من رغبتك في تسجيل الخروج من لوحة الإدارة؟')) {
+                    signOut()
+                  }
+                }}
                 className="inline-flex items-center gap-1.5 text-xs text-rose-600 hover:text-white hover:bg-rose-600 border border-rose-200 hover:border-rose-600 px-3 py-1.5 rounded-lg transition cursor-pointer font-medium"
                 title="تسجيل الخروج"
               >

@@ -419,7 +419,7 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.create_admin(
     p_name TEXT,
-    p_email TEXT,
+    p_username TEXT,
     p_password TEXT,
     p_role TEXT DEFAULT 'admin'
 )
@@ -428,23 +428,33 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+    v_clean_user TEXT := lower(trim(p_username));
+    v_hashed TEXT;
 BEGIN
-    IF length(p_password) < 6 THEN
-        RETURN jsonb_build_object('success', false, 'error', 'كلمة المرور يجب أن لا تقل عن 6 خانات.');
+    IF length(trim(p_password)) < 6 THEN
+        RETURN jsonb_build_object('success', false, 'error', 'كلمة المرور يجب أن لا تقل عن 6 أحرف أو أرقام.');
     END IF;
 
-    INSERT INTO public.admins (name, email, password_hash, role, is_active)
+    IF length(v_clean_user) < 3 THEN
+        RETURN jsonb_build_object('success', false, 'error', 'اسم المستخدم يجب أن لا يقل عن 3 أحرف.');
+    END IF;
+
+    v_hashed := public.hash_admin_password(p_password);
+
+    INSERT INTO public.admins (name, username, email, password_hash, role, is_active)
     VALUES (
         trim(p_name),
-        lower(trim(p_email)),
-        public.hash_admin_password(p_password),
-        p_role,
+        v_clean_user,
+        v_clean_user || '@punchlog.com',
+        v_hashed,
+        coalesce(p_role, 'admin'),
         true
     );
 
-    RETURN jsonb_build_object('success', true, 'message', 'تم إنشاء حساب المدير بنجاح.');
+    RETURN jsonb_build_object('success', true, 'message', format('تم إنشاء حساب المدير (%s) بنجاح.', p_name));
 EXCEPTION WHEN unique_violation THEN
-    RETURN jsonb_build_object('success', false, 'error', 'هذا البريد الإلكتروني مسجل مسبقاً لمدير آخر.');
+    RETURN jsonb_build_object('success', false, 'error', 'اسم المستخدم هذا مسجل مسبقاً لمدير آخر.');
 END;
 $$;
 

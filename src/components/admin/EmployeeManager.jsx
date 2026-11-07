@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import { 
   Users, UserPlus, Search, Edit2, CheckCircle2, 
-  XCircle, Smartphone, AlertCircle, Loader2, RefreshCw, Unlink 
+  XCircle, Smartphone, AlertCircle, Loader2, RefreshCw, Unlink, Trash2 
 } from 'lucide-react'
 
 export default function EmployeeManager() {
@@ -88,6 +88,12 @@ export default function EmployeeManager() {
     }
 
     try {
+      if (editingEmployee) {
+        if (!window.confirm(`هل أنت متأكد من حفظ التعديلات لبيانات الموظف "${formData.name}"؟`)) {
+          return
+        }
+      }
+
       setSubmitting(true)
       if (editingEmployee) {
         // تعديل بيانات الموظف (الاسم والقسم فقط للحفاظ على ثبات الرقم الوظيفي)
@@ -153,6 +159,11 @@ export default function EmployeeManager() {
   }
 
   const toggleEmployeeStatus = async (emp) => {
+    const actionName = emp.is_active ? 'إيقاف وتعطيل' : 'إعادة تفعيل'
+    if (!window.confirm(`هل أنت متأكد من ${actionName} حساب الموظف "${emp.name}"؟`)) {
+      return
+    }
+
     try {
       const nextStatus = !emp.is_active
       const { error } = await supabase
@@ -166,6 +177,39 @@ export default function EmployeeManager() {
       )
     } catch (err) {
       alert('تعذر تغيير حالة الموظف: ' + err.message)
+    }
+  }
+
+  // حذف الموظف بشكل كامل من النظام مع حركات حضوره
+  const handleDeleteEmployee = async (emp) => {
+    if (
+      !window.confirm(
+        `⚠️ تنبيه هام: هل أنت متأكد من حذف الموظف "${emp.name}" (الرقم: ${emp.employee_code}) بشكل نهائي؟\n\nسيتم حذف سجل الموظف وكافة حركات حضوره وانصرافه وارتباط جهازه من قاعدة البيانات بالكامل، ولا يمكن التراجع عن هذا الإجراء.`
+      )
+    ) {
+      return
+    }
+
+    try {
+      setLoading(true)
+      setErrorMsg('')
+      setSuccessMsg('')
+
+      // 1. حذف حركات حضور الموظف أولاً لتفادي قيود Foreign Key
+      await supabase.from('attendance').delete().eq('employee_id', emp.id)
+
+      // 2. حذف الموظف
+      const { error } = await supabase.from('employees').delete().eq('id', emp.id)
+
+      if (error) throw error
+
+      setSuccessMsg(`تم حذف الموظف (${emp.name}) وجميع سجلاته بنجاح.`)
+      fetchEmployees()
+    } catch (err) {
+      console.error('Delete error:', err)
+      setErrorMsg('فشل حذف الموظف: ' + (err.message || 'حدث خطأ غير متوقع'))
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -371,6 +415,13 @@ export default function EmployeeManager() {
                           ) : (
                             <CheckCircle2 className="w-4 h-4" />
                           )}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteEmployee(emp)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                          title="حذف الموظف نهائياً من النظام"
+                        >
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </td>
