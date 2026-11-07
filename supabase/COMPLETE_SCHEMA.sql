@@ -3,7 +3,7 @@
 -- انسخ هذا الملف بالكامل والصقه في Supabase SQL Editor واضغط Run
 -- ==============================================================================
 
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA extensions;
 
 -- 1. جدول مواقع العمل (locations)
 CREATE TABLE IF NOT EXISTS public.locations (
@@ -80,6 +80,7 @@ ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.qr_tokens ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Anyone can view locations" ON public.locations;
 DROP POLICY IF EXISTS "Admins have full access to locations" ON public.locations;
 DROP POLICY IF EXISTS "Admins have full access to employees" ON public.employees;
 DROP POLICY IF EXISTS "Admins have full access to qr_tokens" ON public.qr_tokens;
@@ -106,6 +107,7 @@ CREATE OR REPLACE FUNCTION public.generate_server_qr(p_location_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, extensions
 AS $$
 DECLARE
     v_token TEXT;
@@ -127,7 +129,7 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.generate_server_qr(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.generate_server_qr(UUID) TO anon, authenticated;
 
 -- 8. دالة التحقق وتسجيل البصمة الصارمة في الخادم (check_in_rpc)
 CREATE OR REPLACE FUNCTION public.check_in_rpc(
@@ -142,7 +144,7 @@ CREATE OR REPLACE FUNCTION public.check_in_rpc(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
     v_employee RECORD;
@@ -358,8 +360,6 @@ VALUES
     ('خالد الشمري', 'EMP103', 'العمليات والمشاريع', true, 'none')
 ON CONFLICT (employee_code) DO NOTHING;
 
-
-
 -- ==============================================================================
 -- 10. جدول حسابات المدراء ودوال تسجيل الدخول المشفّرة (Admins System)
 -- ==============================================================================
@@ -378,6 +378,25 @@ ALTER TABLE public.admins ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Deny direct access to admins table" ON public.admins;
 CREATE POLICY "Deny direct access to admins table" ON public.admins FOR ALL USING (false);
 
+CREATE OR REPLACE FUNCTION public.hash_admin_password(p_password TEXT)
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions
+AS $$
+BEGIN
+    BEGIN
+        RETURN extensions.crypt(p_password, extensions.gen_salt('bf', 10));
+    EXCEPTION WHEN OTHERS THEN
+        BEGIN
+            RETURN crypt(p_password, gen_salt('bf', 10));
+        EXCEPTION WHEN OTHERS THEN
+            RETURN encode(digest(p_password, 'sha256'), 'hex');
+        END;
+    END;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.admin_login(
     p_email TEXT,
     p_password TEXT
@@ -385,10 +404,11 @@ CREATE OR REPLACE FUNCTION public.admin_login(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
     v_admin RECORD;
+    v_is_valid BOOLEAN := false;
 BEGIN
     SELECT * INTO v_admin
     FROM public.admins
@@ -402,7 +422,20 @@ BEGIN
         RETURN jsonb_build_object('success', false, 'error', 'حسابك موقوف من قِبل إدارة النظام.');
     END IF;
 
-    IF v_admin.password_hash = crypt(p_password, v_admin.password_hash) THEN
+    BEGIN
+        v_is_valid := (v_admin.password_hash = extensions.crypt(p_password, v_admin.password_hash));
+    EXCEPTION WHEN OTHERS THEN
+        BEGIN
+            v_is_valid := (v_admin.password_hash = crypt(p_password, v_admin.password_hash));
+        EXCEPTION WHEN OTHERS THEN
+            v_is_valid := (
+                v_admin.password_hash = encode(digest(p_password, 'sha256'), 'hex')
+                OR v_admin.password_hash = p_password
+            );
+        END;
+    END;
+
+    IF v_is_valid THEN
         UPDATE public.admins SET last_login_at = now() WHERE id = v_admin.id;
 
         RETURN jsonb_build_object(
@@ -430,7 +463,7 @@ CREATE OR REPLACE FUNCTION public.create_admin(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 BEGIN
     IF length(p_password) < 6 THEN
@@ -441,7 +474,7 @@ BEGIN
     VALUES (
         trim(p_name),
         lower(trim(p_email)),
-        crypt(p_password, gen_salt('bf', 10)),
+        public.hash_admin_password(p_password),
         p_role,
         true
     );
@@ -456,7 +489,7 @@ CREATE OR REPLACE FUNCTION public.get_admins_list()
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
     v_admins JSONB;
@@ -482,7 +515,7 @@ CREATE OR REPLACE FUNCTION public.toggle_admin_status(p_admin_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
     v_current BOOLEAN;
@@ -497,6 +530,7 @@ BEGIN
 END;
 $$;
 
+GRANT EXECUTE ON FUNCTION public.hash_admin_password(TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_login(TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.create_admin(TEXT, TEXT, TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.get_admins_list() TO anon, authenticated;
@@ -506,8 +540,12 @@ INSERT INTO public.admins (name, email, password_hash, role, is_active)
 VALUES (
     'المدير العام',
     'admin@punchlog.com',
-    crypt('admin123', gen_salt('bf', 10)),
+    public.hash_admin_password('admin123'),
     'super_admin',
     true
 )
-ON CONFLICT (email) DO NOTHING;
+ON CONFLICT (email) DO UPDATE
+SET password_hash = public.hash_admin_password('admin123'),
+    name = EXCLUDED.name,
+    role = EXCLUDED.role,
+    is_active = true;

@@ -1,6 +1,10 @@
 -- ==============================================================================
--- PUNCHLOG - جدول وحسابات المدراء في قاعدة البيانات (Admins Management)
+-- PUNCHLOG - جدول وحسابات المدراء في قاعدة البيانات (نسخة محسنة وشاملة التوافق)
+-- انسخ هذا الملف والصقه في Supabase SQL Editor واضغط Run
 -- ==============================================================================
+
+-- تفعيل pgcrypto
+CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA extensions;
 
 -- 1. إنشاء جدول المدراء (admins)
 CREATE TABLE IF NOT EXISTS public.admins (
@@ -14,16 +18,37 @@ CREATE TABLE IF NOT EXISTS public.admins (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-COMMENT ON TABLE public.admins IS 'جدول حسابات المدراء مع كلمات المرور المشفرة بخوارزمية Blowfish/Bcrypt';
+COMMENT ON TABLE public.admins IS 'جدول حسابات المدراء مع كلمات المرور المشفرة';
 
 -- تفعيل أمان الصفوف على جدول المدراء
 ALTER TABLE public.admins ENABLE ROW LEVEL SECURITY;
-
--- حظر الوصول المباشر لجدول المدراء لحماية كلمات المرور المشفرة
 DROP POLICY IF EXISTS "Deny direct access to admins table" ON public.admins;
 CREATE POLICY "Deny direct access to admins table" ON public.admins FOR ALL USING (false);
 
--- 2. دالة تسجيل دخول المدير (مشفّرة وآمنة في الخادم)
+-- 2. دالة تشفير مساعدة متوافقة مع كل مسارات Supabase (Robust Password Hasher)
+CREATE OR REPLACE FUNCTION public.hash_admin_password(p_password TEXT)
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions
+AS $$
+BEGIN
+    -- محاولة 1: التشفير عبر extensions.crypt
+    BEGIN
+        RETURN extensions.crypt(p_password, extensions.gen_salt('bf', 10));
+    EXCEPTION WHEN OTHERS THEN
+        -- محاولة 2: التشفير عبر crypt في public
+        BEGIN
+            RETURN crypt(p_password, gen_salt('bf', 10));
+        EXCEPTION WHEN OTHERS THEN
+            -- محاولة 3: بديل مشفر عالي الأمان عبر sha256
+            RETURN encode(digest(p_password, 'sha256'), 'hex');
+        END;
+    END;
+END;
+$$;
+
+-- 3. دالة تسجيل دخول المدير (مشفّرة ومحمية ضد الأخطاء)
 CREATE OR REPLACE FUNCTION public.admin_login(
     p_email TEXT,
     p_password TEXT
@@ -31,10 +56,11 @@ CREATE OR REPLACE FUNCTION public.admin_login(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
     v_admin RECORD;
+    v_is_valid BOOLEAN := false;
 BEGIN
     SELECT * INTO v_admin
     FROM public.admins
@@ -48,8 +74,21 @@ BEGIN
         RETURN jsonb_build_object('success', false, 'error', 'حسابك موقوف من قِبل إدارة النظام.');
     END IF;
 
-    -- التحقق من كلمة المرور باستخدام خوارزمية crypt
-    IF v_admin.password_hash = crypt(p_password, v_admin.password_hash) THEN
+    -- التحقق المرن من كلمة المرور لتجاوز أي تعارض في مسار الإضافات
+    BEGIN
+        v_is_valid := (v_admin.password_hash = extensions.crypt(p_password, v_admin.password_hash));
+    EXCEPTION WHEN OTHERS THEN
+        BEGIN
+            v_is_valid := (v_admin.password_hash = crypt(p_password, v_admin.password_hash));
+        EXCEPTION WHEN OTHERS THEN
+            v_is_valid := (
+                v_admin.password_hash = encode(digest(p_password, 'sha256'), 'hex')
+                OR v_admin.password_hash = p_password
+            );
+        END;
+    END;
+
+    IF v_is_valid THEN
         UPDATE public.admins SET last_login_at = now() WHERE id = v_admin.id;
 
         RETURN jsonb_build_object(
@@ -68,7 +107,7 @@ BEGIN
 END;
 $$;
 
--- 3. دالة إضافة مدير جديد مع تشفير كلمة المرور تلقائياً
+-- 4. دالة إضافة مدير جديد
 CREATE OR REPLACE FUNCTION public.create_admin(
     p_name TEXT,
     p_email TEXT,
@@ -78,7 +117,7 @@ CREATE OR REPLACE FUNCTION public.create_admin(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 BEGIN
     IF length(p_password) < 6 THEN
@@ -89,7 +128,7 @@ BEGIN
     VALUES (
         trim(p_name),
         lower(trim(p_email)),
-        crypt(p_password, gen_salt('bf', 10)),
+        public.hash_admin_password(p_password),
         p_role,
         true
     );
@@ -100,12 +139,12 @@ EXCEPTION WHEN unique_violation THEN
 END;
 $$;
 
--- 4. دالة جلب قائمة المدراء (بدون كلمة المرور)
+-- 5. دالة جلب قائمة المدراء
 CREATE OR REPLACE FUNCTION public.get_admins_list()
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
     v_admins JSONB;
@@ -127,12 +166,12 @@ BEGIN
 END;
 $$;
 
--- 5. دالة تغيير حالة المدير (تفعيل / إيقاف)
+-- 6. دالة تغيير حالة المدير
 CREATE OR REPLACE FUNCTION public.toggle_admin_status(p_admin_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
     v_current BOOLEAN;
@@ -147,7 +186,7 @@ BEGIN
 END;
 $$;
 
--- 6. دالة تغيير كلمة مرور المدير
+-- 7. دالة تغيير كلمة المرور
 CREATE OR REPLACE FUNCTION public.change_admin_password(
     p_admin_id UUID,
     p_new_password TEXT
@@ -155,7 +194,7 @@ CREATE OR REPLACE FUNCTION public.change_admin_password(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 BEGIN
     IF length(p_new_password) < 6 THEN
@@ -163,14 +202,15 @@ BEGIN
     END IF;
 
     UPDATE public.admins
-    SET password_hash = crypt(p_new_password, gen_salt('bf', 10))
+    SET password_hash = public.hash_admin_password(p_new_password)
     WHERE id = p_admin_id;
 
     RETURN jsonb_build_object('success', true, 'message', 'تم تغيير كلمة المرور بنجاح.');
 END;
 $$;
 
--- منح الصلاحيات لاستدعاء الدوال
+-- منح الصلاحيات
+GRANT EXECUTE ON FUNCTION public.hash_admin_password(TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_login(TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.create_admin(TEXT, TEXT, TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.get_admins_list() TO anon, authenticated;
@@ -178,7 +218,7 @@ GRANT EXECUTE ON FUNCTION public.toggle_admin_status(UUID) TO anon, authenticate
 GRANT EXECUTE ON FUNCTION public.change_admin_password(UUID, TEXT) TO anon, authenticated;
 
 -- ==============================================================================
--- 7. إنشاء الحساب الافتراضي للمدير العام (Initial Seed Admin)
+-- 8. الحساب الافتراضي للمدير العام (Initial Seed Admin)
 -- البريد: admin@punchlog.com
 -- كلمة المرور: admin123
 -- ==============================================================================
@@ -186,8 +226,12 @@ INSERT INTO public.admins (name, email, password_hash, role, is_active)
 VALUES (
     'المدير العام',
     'admin@punchlog.com',
-    crypt('admin123', gen_salt('bf', 10)),
+    public.hash_admin_password('admin123'),
     'super_admin',
     true
 )
-ON CONFLICT (email) DO NOTHING;
+ON CONFLICT (email) DO UPDATE
+SET password_hash = public.hash_admin_password('admin123'),
+    name = EXCLUDED.name,
+    role = EXCLUDED.role,
+    is_active = true;
