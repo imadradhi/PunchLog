@@ -71,7 +71,7 @@ export default function AdminLogin({ onLoginSuccess }) {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="مثال: admin"
+                placeholder="أدخل اسم المستخدم"
                 required
                 autoComplete="username"
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 pl-10 text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-100 text-sm transition font-mono"
@@ -114,15 +114,10 @@ export default function AdminLogin({ onLoginSuccess }) {
           </button>
         </form>
 
-        <div className="mt-8 pt-4 border-t border-slate-100 text-center space-y-2">
-          <p className="text-[11px] text-slate-500">
-            الحساب الافتراضي: اسم المستخدم <code className="text-blue-600 font-mono bg-blue-50 px-1.5 py-0.5 rounded font-bold">admin</code> | كلمة المرور <code className="text-blue-600 font-mono bg-blue-50 px-1.5 py-0.5 rounded font-bold">admin123</code>
-          </p>
-          <div>
-            <a href="/" className="text-xs font-semibold text-blue-600 hover:text-blue-800 transition">
-              العودة لشاشة الموظف &larr;
-            </a>
-          </div>
+        <div className="mt-6 pt-4 border-t border-slate-100 text-center">
+          <a href="/" className="text-xs font-semibold text-blue-600 hover:text-blue-800 transition">
+            العودة لشاشة الموظف &larr;
+          </a>
         </div>
       </div>
     </div>
