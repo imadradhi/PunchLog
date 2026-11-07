@@ -16,9 +16,14 @@ function AdminRouteGuard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white font-sans">
-        <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-4" />
-        <p className="text-sm text-slate-400">جاري التحقق من جلسة الإدارة...</p>
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-800 font-sans">
+        <img
+          src="/logo.png"
+          alt="PunchLog Logo"
+          className="w-16 h-16 rounded-2xl shadow-sm mb-4 animate-pulse"
+        />
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-2" />
+        <p className="text-xs font-semibold text-slate-500">جاري التحقق من جلسة الإدارة...</p>
       </div>
     )
   }

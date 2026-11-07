@@ -123,19 +123,15 @@ export default function EmployeePunch() {
     setGpsError('')
 
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const coords = {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracy: pos.coords.accuracy,
-        }
-        setUserCoords(coords)
+      (position) => {
+        const { latitude, longitude, accuracy } = position.coords
+        setUserCoords({ lat: latitude, lng: longitude, accuracy })
         setGpsStatus('granted')
 
         if (location) {
           const distance = calculateDistance(
-            coords.lat,
-            coords.lng,
+            latitude,
+            longitude,
             location.lat,
             location.lng
           )
@@ -326,15 +322,17 @@ export default function EmployeePunch() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white flex flex-col justify-between p-4 sm:p-6 selection:bg-blue-600">
+    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col justify-between p-4 sm:p-6 selection:bg-blue-600 selection:text-white">
       <div className="max-w-md w-full mx-auto space-y-4">
-        {/* الترويسة وشعار التطبيق */}
-        <header className="text-center pt-1">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-blue-600/20 text-blue-400 mb-2 border border-blue-500/30 shadow-lg shadow-blue-500/10">
-            <QrCode className="w-6 h-6" />
-          </div>
-          <h1 className="text-xl font-bold tracking-tight text-white">PunchLog</h1>
-          <p className="text-xs text-slate-400">بصمة الحضور والانصراف الذكية</p>
+        {/* الترويسة وشعار التطبيق الجديد */}
+        <header className="text-center pt-2">
+          <img
+            src="/logo.png"
+            alt="PunchLog Logo"
+            className="w-20 h-20 mx-auto mb-2.5 rounded-2xl shadow-sm object-contain"
+          />
+          <h1 className="text-2xl font-black tracking-tight text-slate-800">PunchLog</h1>
+          <p className="text-xs font-semibold text-slate-500">بصمة الحضور والانصراف الذكية</p>
         </header>
 
         {/* ======================================================== */}
@@ -343,15 +341,15 @@ export default function EmployeePunch() {
         {!verifiedEmployee ? (
           <form
             onSubmit={handleVerifyEmployee}
-            className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl backdrop-blur-md space-y-3"
+            className="bg-white border border-slate-200/90 rounded-3xl p-5 shadow-sm space-y-3.5"
           >
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
+              <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5 text-blue-400" />
+                  <User className="w-4 h-4 text-blue-600" />
                   أدخل رقمك التعريفي (4 أرقام)
                 </span>
-                <span className="text-[10px] text-slate-500 font-mono">مثال: 1001، 1002</span>
+                <span className="text-[10px] text-slate-400 font-mono">مثال: 1001، 1002</span>
               </label>
 
               <div className="flex gap-2">
@@ -368,13 +366,13 @@ export default function EmployeePunch() {
                   placeholder="1001"
                   required
                   autoFocus
-                  className="flex-1 bg-slate-950 border border-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-2xl px-4 py-3 text-lg font-mono text-center font-bold tracking-widest placeholder-slate-700 transition outline-none"
+                  className="flex-1 bg-slate-50 border border-slate-200 focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-2xl px-4 py-3 text-xl font-mono text-center font-bold tracking-widest text-slate-900 placeholder-slate-400 transition outline-none"
                 />
 
                 <button
                   type="submit"
                   disabled={verifying || !employeeCode.trim()}
-                  className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-5 py-3 rounded-2xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-blue-600/30 transition cursor-pointer"
+                  className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-5 py-3 rounded-2xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/20 transition cursor-pointer"
                 >
                   {verifying ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -389,47 +387,45 @@ export default function EmployeePunch() {
             </div>
 
             {verifyError && (
-              <div className="p-3 rounded-2xl bg-red-950/60 border border-red-800/60 text-red-200 text-xs flex items-start gap-2 animate-in fade-in">
-                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+              <div className="p-3 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2 animate-in fade-in">
+                <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
                 <span>{verifyError}</span>
               </div>
             )}
 
             {/* معرّف الجهاز */}
-            <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex items-center justify-between text-[11px] text-slate-500">
               <span className="flex items-center gap-1.5">
-                <Smartphone className="w-3.5 h-3.5 text-blue-400" />
+                <Smartphone className="w-3.5 h-3.5 text-blue-600" />
                 معرّف هذا الهاتف:
               </span>
-              <span className="font-mono text-[10px] text-slate-300 select-all">
+              <span className="font-mono text-[10px] text-slate-600 select-all font-semibold">
                 {deviceId.slice(0, 8)}...{deviceId.slice(-4)}
               </span>
             </div>
           </form>
         ) : (
           /* بطاقة الموظف بعد التحقق */
-          <div className="bg-slate-900/90 border border-blue-500/40 rounded-3xl p-4 shadow-xl backdrop-blur-md relative overflow-hidden animate-in fade-in">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-blue-600/10 rounded-full blur-2xl -mr-6 -mt-6 pointer-events-none" />
-
+          <div className="bg-white border border-blue-200 rounded-3xl p-4 shadow-sm relative overflow-hidden animate-in fade-in">
             <div className="flex items-start justify-between gap-3 relative z-10">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-blue-600/20 text-blue-400 border border-blue-500/40 flex items-center justify-center font-bold text-lg">
+                <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-700 border border-blue-200 flex items-center justify-center font-bold text-lg shadow-xs">
                   {verifiedEmployee.name.charAt(0)}
                 </div>
                 <div>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
-                      <CheckCircle2 className="w-2.5 h-2.5" />
+                    <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
+                      <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600" />
                       تم التحقق
                     </span>
-                    <span className="text-xs font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded-md font-semibold">
+                    <span className="text-xs font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md font-semibold">
                       #{verifiedEmployee.employee_code}
                     </span>
                   </div>
-                  <h2 className="text-base font-bold text-white mt-1 leading-tight">
+                  <h2 className="text-base font-bold text-slate-900 mt-1 leading-tight">
                     {verifiedEmployee.name}
                   </h2>
-                  <p className="text-xs text-slate-400 mt-0.5">
+                  <p className="text-xs text-slate-500 mt-0.5 font-medium">
                     {verifiedEmployee.department}
                   </p>
                 </div>
@@ -438,7 +434,7 @@ export default function EmployeePunch() {
               <button
                 type="button"
                 onClick={handleResetEmployee}
-                className="text-[11px] font-semibold text-slate-400 hover:text-rose-400 bg-slate-800 hover:bg-slate-700/80 border border-slate-700 px-2.5 py-1.5 rounded-xl transition cursor-pointer"
+                className="text-[11px] font-semibold text-slate-600 hover:text-rose-600 bg-slate-100 hover:bg-slate-200 border border-slate-200 px-2.5 py-1.5 rounded-xl transition cursor-pointer"
                 title="تغيير الموظف"
               >
                 تغيير
@@ -453,14 +449,14 @@ export default function EmployeePunch() {
         {verifiedEmployee && (
           <div className="space-y-4 animate-in fade-in">
             {/* شريط التبديل بين الطريقتين */}
-            <div className="grid grid-cols-2 gap-2 bg-slate-900/80 p-1.5 rounded-2xl border border-slate-800">
+            <div className="grid grid-cols-2 gap-2 bg-slate-200/70 p-1.5 rounded-2xl border border-slate-200">
               <button
                 type="button"
                 onClick={() => setPunchMethod('qr')}
                 className={`py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
                   punchMethod === 'qr'
-                    ? 'bg-blue-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <Camera className="w-4 h-4" />
@@ -475,8 +471,8 @@ export default function EmployeePunch() {
                 }}
                 className={`py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
                   punchMethod === 'gps'
-                    ? 'bg-emerald-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <Compass className="w-4 h-4" />
@@ -488,8 +484,8 @@ export default function EmployeePunch() {
             {/* أ) شاشة طريقة مسح الباركود (لا تتطلب فحص موقع) */}
             {/* ---------------------------------------------------- */}
             {punchMethod === 'qr' && (
-              <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-center">
-                <div className="p-3 bg-blue-950/40 border border-blue-800/40 rounded-2xl text-xs text-blue-200 leading-relaxed text-right">
+              <div className="bg-white border border-slate-200/90 rounded-3xl p-5 shadow-sm space-y-4 text-center">
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-2xl text-xs text-blue-800 leading-relaxed text-right">
                   <strong>💡 ميزة مسح الباركود:</strong> لا تتطلب فحص الموقع الجغرافي؛ لأن الرمز يتجدد كل 10 ثوانٍ ولا يوجد إلا على شاشة الاستقبال داخل المقر.
                 </div>
 
@@ -497,7 +493,7 @@ export default function EmployeePunch() {
                   type="button"
                   onClick={startScanner}
                   disabled={submitting}
-                  className="w-full py-4 px-6 rounded-2xl font-bold text-sm bg-blue-600 hover:bg-blue-500 text-white shadow-xl shadow-blue-600/30 transition flex items-center justify-center gap-2.5 cursor-pointer active:scale-[0.98]"
+                  className="w-full py-4 px-6 rounded-2xl font-bold text-sm bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20 transition flex items-center justify-center gap-2.5 cursor-pointer active:scale-[0.98]"
                 >
                   {submitting ? (
                     <>
@@ -518,11 +514,11 @@ export default function EmployeePunch() {
             {/* ب) شاشة طريقة بصمة الموقع الجغرافي (تتطلب التواجد بالدائرة) */}
             {/* ---------------------------------------------------- */}
             {punchMethod === 'gps' && (
-              <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+              <div className="bg-white border border-slate-200/90 rounded-3xl p-5 shadow-sm space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <MapPin className="w-4 h-4 text-emerald-400" />
-                    <span className="text-xs font-bold text-slate-200">
+                    <MapPin className="w-4 h-4 text-emerald-600" />
+                    <span className="text-xs font-bold text-slate-800">
                       {location ? location.name : 'موقع العمل'}
                     </span>
                   </div>
@@ -530,7 +526,7 @@ export default function EmployeePunch() {
                   <button
                     onClick={requestLocation}
                     disabled={gpsStatus === 'locating'}
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 bg-emerald-950/50 hover:bg-emerald-900/50 border border-emerald-800/50 px-2.5 py-1.5 rounded-xl transition cursor-pointer"
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1.5 rounded-xl transition cursor-pointer"
                   >
                     <Navigation className={`w-3 h-3 ${gpsStatus === 'locating' ? 'animate-spin' : ''}`} />
                     <span>{gpsStatus === 'granted' ? 'تحديث الموقع' : 'تحديد موقعي (GPS)'}</span>
@@ -539,21 +535,21 @@ export default function EmployeePunch() {
 
                 {/* حالة الموقع */}
                 {gpsStatus === 'idle' && (
-                  <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800 text-slate-400 text-xs text-center">
+                  <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-slate-500 text-xs text-center">
                     اضغط على "تحديد موقعي" للتأكد من تواجدك داخل نطاق المقر قبل البصمة.
                   </div>
                 )}
 
                 {gpsStatus === 'locating' && (
-                  <div className="p-3 rounded-2xl bg-blue-950/40 border border-blue-900/50 text-blue-300 text-xs flex items-center justify-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
+                  <div className="p-3 rounded-2xl bg-blue-50 border border-blue-200 text-blue-700 text-xs flex items-center justify-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
                     <span>جاري تحديد موقعك الجغرافي بالأقمار الصناعية...</span>
                   </div>
                 )}
 
                 {gpsStatus === 'denied' && (
-                  <div className="p-3 rounded-2xl bg-red-950/50 border border-red-900/50 text-red-200 text-xs flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                  <div className="p-3 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
                     <span>{gpsError}</span>
                   </div>
                 )}
@@ -563,15 +559,15 @@ export default function EmployeePunch() {
                     <div
                       className={`p-3.5 rounded-2xl border flex items-center justify-between text-xs font-semibold ${
                         isInRange
-                          ? 'bg-emerald-950/40 border-emerald-800/50 text-emerald-300'
-                          : 'bg-amber-950/40 border-amber-800/50 text-amber-300'
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                          : 'bg-amber-50 border-amber-200 text-amber-800'
                       }`}
                     >
                       <div className="flex items-center gap-2">
                         {isInRange ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                         ) : (
-                          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
                         )}
                         <span>
                           {isInRange
@@ -594,10 +590,10 @@ export default function EmployeePunch() {
                   type="button"
                   onClick={handleGpsPunch}
                   disabled={!isInRange || submitting}
-                  className={`w-full py-4 px-6 rounded-2xl font-bold text-sm shadow-xl transition flex items-center justify-center gap-2.5 cursor-pointer ${
+                  className={`w-full py-4 px-6 rounded-2xl font-bold text-sm shadow-md transition flex items-center justify-center gap-2.5 cursor-pointer ${
                     isInRange && !submitting
-                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30 active:scale-[0.98]'
-                      : 'bg-slate-800/80 text-slate-500 border border-slate-800 cursor-not-allowed opacity-60'
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20 active:scale-[0.98]'
+                      : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-75'
                   }`}
                 >
                   {submitting ? (
@@ -614,7 +610,7 @@ export default function EmployeePunch() {
                 </button>
 
                 {!isInRange && gpsStatus === 'granted' && (
-                  <p className="text-[11px] text-amber-400/90 text-center">
+                  <p className="text-[11px] text-amber-600 text-center font-medium">
                     * يجب أن تتواجد داخل دائرة المقر لتسجيل البصمة الجغرافية.
                   </p>
                 )}
@@ -628,17 +624,17 @@ export default function EmployeePunch() {
         {/* ======================================================== */}
         {punchResult && (
           <div
-            className={`p-5 rounded-3xl border shadow-2xl transition-all animate-in fade-in ${
+            className={`p-5 rounded-3xl border shadow-sm transition-all animate-in fade-in ${
               punchResult.status === 'success'
-                ? 'bg-emerald-950/70 border-emerald-700/60 text-white'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
                 : punchResult.status === 'pending'
-                ? 'bg-amber-950/70 border-amber-700/60 text-white'
-                : 'bg-rose-950/70 border-rose-700/60 text-white'
+                ? 'bg-amber-50 border-amber-200 text-amber-950'
+                : 'bg-red-50 border-red-200 text-red-950'
             }`}
           >
             <div className="flex items-start gap-3">
               {punchResult.status === 'success' && (
-                <div className="p-2.5 bg-emerald-500/20 text-emerald-400 rounded-2xl border border-emerald-500/30">
+                <div className="p-2.5 bg-emerald-100 text-emerald-700 rounded-2xl border border-emerald-200">
                   {punchResult.type === 'in' ? (
                     <ArrowDownRight className="w-6 h-6" />
                   ) : (
@@ -647,26 +643,26 @@ export default function EmployeePunch() {
                 </div>
               )}
               {punchResult.status === 'pending' && (
-                <div className="p-2.5 bg-amber-500/20 text-amber-400 rounded-2xl border border-amber-500/30">
+                <div className="p-2.5 bg-amber-100 text-amber-700 rounded-2xl border border-amber-200">
                   <Smartphone className="w-6 h-6" />
                 </div>
               )}
               {punchResult.status === 'error' && (
-                <div className="p-2.5 bg-rose-500/20 text-rose-400 rounded-2xl border border-rose-500/30">
+                <div className="p-2.5 bg-red-100 text-red-700 rounded-2xl border border-red-200">
                   <AlertCircle className="w-6 h-6" />
                 </div>
               )}
 
               <div className="flex-1">
-                <h3 className="font-bold text-base leading-tight mb-1">
+                <h3 className="font-bold text-base leading-tight mb-1 text-slate-900">
                   {punchResult.title}
                 </h3>
-                <p className="text-xs text-slate-200 leading-relaxed">
+                <p className="text-xs text-slate-600 leading-relaxed font-medium">
                   {punchResult.message}
                 </p>
 
                 {punchResult.time && (
-                  <div className="mt-2.5 flex items-center gap-1.5 text-xs text-emerald-300 font-mono">
+                  <div className="mt-2.5 flex items-center gap-1.5 text-xs text-emerald-700 font-mono font-bold">
                     <Clock className="w-3.5 h-3.5" />
                     <span>الوقت المعتمد: {punchResult.time}</span>
                   </div>
@@ -679,27 +675,27 @@ export default function EmployeePunch() {
 
       {/* نافذة الكاميرا والماسح المنبثقة */}
       {isScanning && (
-        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-3xl p-5 shadow-2xl relative">
+        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-white border border-slate-200 rounded-3xl p-5 shadow-2xl relative">
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center gap-2">
-                <Camera className="w-4 h-4 text-blue-400" />
-                <span className="text-xs font-bold text-white">وجه الكاميرا نحو باركود الشاشة</span>
+                <Camera className="w-4 h-4 text-blue-600" />
+                <span className="text-xs font-bold text-slate-800">وجه الكاميرا نحو باركود الشاشة</span>
               </div>
               <button
                 onClick={stopScanner}
-                className="p-1.5 rounded-full bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+                className="p-1.5 rounded-full bg-slate-100 text-slate-500 hover:text-slate-900 transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="overflow-hidden rounded-2xl bg-black aspect-square relative border-2 border-dashed border-blue-500/50">
+            <div className="overflow-hidden rounded-2xl bg-black aspect-square relative border-2 border-dashed border-blue-400">
               <div id="qr-reader" className="w-full h-full" />
             </div>
 
-            <p className="text-[11px] text-slate-400 text-center mt-3">
-              مسح البصمة للموظف: <strong className="text-white">{verifiedEmployee?.name}</strong>
+            <p className="text-[11px] text-slate-500 text-center mt-3 font-medium">
+              مسح البصمة للموظف: <strong className="text-slate-800 font-bold">{verifiedEmployee?.name}</strong>
             </p>
           </div>
         </div>
@@ -707,7 +703,7 @@ export default function EmployeePunch() {
 
       {/* التذييل */}
       <footer className="text-center pt-4 pb-2 text-[11px] text-slate-500">
-        <a href="/admin" className="text-slate-400 hover:text-blue-400 transition underline underline-offset-4">
+        <a href="/admin" className="text-slate-500 hover:text-blue-600 font-semibold transition underline underline-offset-4">
           بوابة الإدارة والمشرفين &larr;
         </a>
       </footer>

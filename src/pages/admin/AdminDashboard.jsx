@@ -46,9 +46,11 @@ export default function AdminDashboard() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-sm shadow-blue-500/20">
-                <ShieldCheck className="w-6 h-6" />
-              </div>
+              <img
+                src="/logo.png"
+                alt="PunchLog Logo"
+                className="w-10 h-10 rounded-xl object-contain shadow-sm border border-slate-100"
+              />
               <div>
                 <h1 className="text-base font-bold text-slate-900 leading-tight">
                   PunchLog <span className="text-blue-600 font-semibold text-xs">Admin</span>
