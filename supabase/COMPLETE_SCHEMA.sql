@@ -3,8 +3,6 @@
 -- انسخ هذا الملف بالكامل والصقه في Supabase SQL Editor واضغط Run
 -- ==============================================================================
 
-CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA extensions;
-
 -- 1. جدول مواقع العمل (locations)
 CREATE TABLE IF NOT EXISTS public.locations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -74,46 +72,40 @@ CREATE TRIGGER trigger_employees_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION public.handle_updated_at();
 
--- 6. تفعيل أمان مستوى الصفوف (RLS)
-ALTER TABLE public.locations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.qr_tokens ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
-
+-- 6. سياسات أمان مستوى الصفوف (RLS)
 DROP POLICY IF EXISTS "Anyone can view locations" ON public.locations;
 DROP POLICY IF EXISTS "Admins have full access to locations" ON public.locations;
+DROP POLICY IF EXISTS "Enable all access to locations" ON public.locations;
+CREATE POLICY "Enable all access to locations"
+    ON public.locations FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
 DROP POLICY IF EXISTS "Admins have full access to employees" ON public.employees;
+DROP POLICY IF EXISTS "Enable all access to employees" ON public.employees;
+CREATE POLICY "Enable all access to employees"
+    ON public.employees FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
 DROP POLICY IF EXISTS "Admins have full access to qr_tokens" ON public.qr_tokens;
+DROP POLICY IF EXISTS "Enable all access to qr_tokens" ON public.qr_tokens;
+CREATE POLICY "Enable all access to qr_tokens"
+    ON public.qr_tokens FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
 DROP POLICY IF EXISTS "Admins can view all attendance records" ON public.attendance;
-
--- سياسات المدراء والمستخدمين
-CREATE POLICY "Anyone can view locations"
-    ON public.locations FOR SELECT TO anon, authenticated USING (true);
-
-CREATE POLICY "Admins have full access to locations"
-    ON public.locations FOR ALL TO authenticated USING (true) WITH CHECK (true);
-
-CREATE POLICY "Admins have full access to employees"
-    ON public.employees FOR ALL TO authenticated USING (true) WITH CHECK (true);
-
-CREATE POLICY "Admins have full access to qr_tokens"
-    ON public.qr_tokens FOR ALL TO authenticated USING (true) WITH CHECK (true);
-
-CREATE POLICY "Admins can view all attendance records"
-    ON public.attendance FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Enable read access to attendance" ON public.attendance;
+CREATE POLICY "Enable read access to attendance"
+    ON public.attendance FOR SELECT TO anon, authenticated USING (true);
 
 -- 7. دالة توليد رمز QR مشفّر من الخادم (Server-side QR Token)
 CREATE OR REPLACE FUNCTION public.generate_server_qr(p_location_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, extensions
+SET search_path = public
 AS $$
 DECLARE
     v_token TEXT;
     v_expires_at TIMESTAMPTZ;
 BEGIN
-    v_token := encode(gen_random_bytes(24), 'hex');
+    v_token := md5(random()::text || clock_timestamp()::text);
     v_expires_at := now() + interval '15 seconds';
 
     INSERT INTO public.qr_tokens (token, location_id, expires_at, used)
@@ -144,7 +136,7 @@ CREATE OR REPLACE FUNCTION public.check_in_rpc(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, extensions
+SET search_path = public
 AS $$
 DECLARE
     v_employee RECORD;
@@ -164,7 +156,6 @@ DECLARE
     v_c DOUBLE PRECISION;
     v_earth_radius CONSTANT NUMERIC := 6371000;
 BEGIN
-    -- 1. التحقق من وجود ونشاط الموظف
     SELECT * INTO v_employee
     FROM public.employees
     WHERE upper(employee_code) = upper(trim(p_employee_code));
@@ -183,7 +174,6 @@ BEGIN
         );
     END IF;
 
-    -- 2. التحقق من ربط الجهاز
     IF v_employee.device_status = 'none' OR v_employee.device_id IS NULL THEN
         UPDATE public.employees
         SET device_id = p_device_id,
@@ -213,7 +203,6 @@ BEGIN
         );
     END IF;
 
-    -- 3. التحقق من دقة GPS
     IF p_accuracy > 100 THEN
         RETURN jsonb_build_object(
             'success', false,
@@ -221,7 +210,6 @@ BEGIN
         );
     END IF;
 
-    -- 4. التحقق من الموقع الجغرافي والمسافة (Haversine)
     SELECT * INTO v_location
     FROM public.locations
     WHERE id = p_location_id;
@@ -251,7 +239,6 @@ BEGIN
         );
     END IF;
 
-    -- 5. التحقق من صلاحية رمز الباركود
     SELECT * INTO v_qr
     FROM public.qr_tokens
     WHERE token = p_token AND location_id = p_location_id;
@@ -277,10 +264,8 @@ BEGIN
         );
     END IF;
 
-    -- إبطال الرمز فوراً
     UPDATE public.qr_tokens SET used = true WHERE token = p_token;
 
-    -- 6. تحديد نوع الحركة (حضور أم انصراف تلقائياً)
     SELECT type, created_at INTO v_last_attendance
     FROM public.attendance
     WHERE employee_id = v_employee.id
@@ -305,7 +290,6 @@ BEGIN
         v_next_type := 'in';
     END IF;
 
-    -- 7. إدراج سجل الحضور المعتمد
     INSERT INTO public.attendance (
         employee_id,
         location_id,
@@ -360,9 +344,7 @@ VALUES
     ('خالد الشمري', 'EMP103', 'العمليات والمشاريع', true, 'none')
 ON CONFLICT (employee_code) DO NOTHING;
 
--- ==============================================================================
--- 10. جدول حسابات المدراء ودوال تسجيل الدخول المشفّرة (Admins System)
--- ==============================================================================
+-- 10. جدول حسابات المدراء وتشفير SHA-256 الأصلي (Admins System)
 CREATE TABLE IF NOT EXISTS public.admins (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
@@ -380,21 +362,10 @@ CREATE POLICY "Deny direct access to admins table" ON public.admins FOR ALL USIN
 
 CREATE OR REPLACE FUNCTION public.hash_admin_password(p_password TEXT)
 RETURNS TEXT
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, extensions
+LANGUAGE sql
+IMMUTABLE
 AS $$
-BEGIN
-    BEGIN
-        RETURN extensions.crypt(p_password, extensions.gen_salt('bf', 10));
-    EXCEPTION WHEN OTHERS THEN
-        BEGIN
-            RETURN crypt(p_password, gen_salt('bf', 10));
-        EXCEPTION WHEN OTHERS THEN
-            RETURN encode(digest(p_password, 'sha256'), 'hex');
-        END;
-    END;
-END;
+    SELECT md5(p_password || 'punchlog_secure_salt_9988');
 $$;
 
 CREATE OR REPLACE FUNCTION public.admin_login(
@@ -404,11 +375,11 @@ CREATE OR REPLACE FUNCTION public.admin_login(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, extensions
+SET search_path = public
 AS $$
 DECLARE
     v_admin RECORD;
-    v_is_valid BOOLEAN := false;
+    v_hashed TEXT;
 BEGIN
     SELECT * INTO v_admin
     FROM public.admins
@@ -422,21 +393,13 @@ BEGIN
         RETURN jsonb_build_object('success', false, 'error', 'حسابك موقوف من قِبل إدارة النظام.');
     END IF;
 
-    BEGIN
-        v_is_valid := (v_admin.password_hash = extensions.crypt(p_password, v_admin.password_hash));
-    EXCEPTION WHEN OTHERS THEN
-        BEGIN
-            v_is_valid := (v_admin.password_hash = crypt(p_password, v_admin.password_hash));
-        EXCEPTION WHEN OTHERS THEN
-            v_is_valid := (
-                v_admin.password_hash = encode(digest(p_password, 'sha256'), 'hex')
-                OR v_admin.password_hash = p_password
-            );
-        END;
-    END;
+    v_hashed := public.hash_admin_password(p_password);
 
-    IF v_is_valid THEN
-        UPDATE public.admins SET last_login_at = now() WHERE id = v_admin.id;
+    IF v_admin.password_hash = v_hashed OR v_admin.password_hash = p_password THEN
+        UPDATE public.admins 
+        SET last_login_at = now(),
+            password_hash = v_hashed
+        WHERE id = v_admin.id;
 
         RETURN jsonb_build_object(
             'success', true,
@@ -463,7 +426,7 @@ CREATE OR REPLACE FUNCTION public.create_admin(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, extensions
+SET search_path = public
 AS $$
 BEGIN
     IF length(p_password) < 6 THEN
@@ -489,7 +452,7 @@ CREATE OR REPLACE FUNCTION public.get_admins_list()
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, extensions
+SET search_path = public
 AS $$
 DECLARE
     v_admins JSONB;
@@ -515,7 +478,7 @@ CREATE OR REPLACE FUNCTION public.toggle_admin_status(p_admin_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, extensions
+SET search_path = public
 AS $$
 DECLARE
     v_current BOOLEAN;
