@@ -4,7 +4,7 @@ import { Html5Qrcode } from 'html5-qrcode'
 import { 
   QrCode, Smartphone, MapPin, User, CheckCircle2, 
   AlertCircle, Camera, RefreshCw, X, ShieldCheck, 
-  ArrowDownRight, ArrowUpLeft, Loader2, Navigation, Clock, Search, ArrowRight 
+  ArrowDownRight, ArrowUpLeft, Loader2, Navigation, Clock, Search, ArrowRight, Compass 
 } from 'lucide-react'
 import { getOrCreateDeviceId, calculateDistance, formatArabicDateTime } from '../../lib/utils'
 import { submitCheckIn } from '../../lib/checkInService'
@@ -19,6 +19,9 @@ export default function EmployeePunch() {
   const [verifiedEmployee, setVerifiedEmployee] = useState(null)
   const [verifying, setVerifying] = useState(false)
   const [verifyError, setVerifyError] = useState('')
+
+  // طريقة البصمة المختارة: 'qr' (مسح الباركود) أو 'gps' (بصمة الموقع)
+  const [punchMethod, setPunchMethod] = useState('qr')
 
   // حالة الموقع و GPS
   const [location, setLocation] = useState(null)
@@ -57,7 +60,7 @@ export default function EmployeePunch() {
     fetchWorkLocation()
   }, [])
 
-  // التحقق من هوية واسم الموظف عبر الرقم
+  // 1. التحقق من هوية واسم الموظف عبر الرقم
   const handleVerifyEmployee = async (e) => {
     if (e) e.preventDefault()
     setVerifyError('')
@@ -81,24 +84,18 @@ export default function EmployeePunch() {
 
       if (!data) {
         setVerifiedEmployee(null)
-        setVerifyError(`الرقم (${cleanCode}) غير مسجل في النظام. يرجى التأكد من الرقم لدى الإدارة.`)
+        setVerifyError(`الرقم (${cleanCode}) غير مسجل في النظام. يرجى مراجعة الإدارة.`)
         return
       }
 
       if (!data.is_active) {
         setVerifiedEmployee(null)
-        setVerifyError(`حساب الموظف (${data.name}) موقوف حالياً. لا يمكن المتابعة.`)
+        setVerifyError(`حساب الموظف (${data.name}) موقوف حالياً.`)
         return
       }
 
-      // تم التحقق بنجاح من هوية الموظف
       setVerifiedEmployee(data)
       localStorage.setItem('punchlog_last_code', cleanCode)
-
-      // طلب الموقع الجغرافي تلقائياً فور التأكد من الموظف لراحة المستخدم
-      if (gpsStatus === 'idle') {
-        requestLocation()
-      }
     } catch (err) {
       console.error('Verify error:', err)
       setVerifyError(err.message || 'حدث خطأ في الاتصال بقاعدة البيانات.')
@@ -114,7 +111,7 @@ export default function EmployeePunch() {
     setPunchResult(null)
   }
 
-  // دالة طلب وتحديث إحداثيات GPS للموظف
+  // طلب وتحديث إحداثيات GPS (خاص بطريقة البصمة الجغرافية)
   const requestLocation = () => {
     if (!navigator.geolocation) {
       setGpsStatus('denied')
@@ -178,15 +175,12 @@ export default function EmployeePunch() {
     }
   }, [location, userCoords])
 
-  // بدء مسح الكاميرا للباركود
+  // =========================================================================
+  // تنفيذ البصمة عبر مسح الباركود (QR Code) - لا تتطلب فحص موقع
+  // =========================================================================
   const startScanner = async () => {
     if (!verifiedEmployee) {
-      alert('يرجى التحقق من الرقم التعريفي للموظف أولاً.')
-      return
-    }
-
-    if (!isInRange) {
-      alert('لا يمكنك فتح الكاميرا لأنك خارج نطاق موقع العمل!')
+      alert('يرجى تأكيد هوية الموظف أولاً.')
       return
     }
 
@@ -218,7 +212,6 @@ export default function EmployeePunch() {
     }, 200)
   }
 
-  // إيقاف الماسح
   const stopScanner = async () => {
     if (scannerRef.current) {
       try {
@@ -232,7 +225,6 @@ export default function EmployeePunch() {
     setIsScanning(false)
   }
 
-  // معالجة قراءة الباركود بنجاح
   const handleScanSuccess = async (decodedText) => {
     await stopScanner()
 
@@ -247,11 +239,36 @@ export default function EmployeePunch() {
       // نص خام
     }
 
-    await processPunch(token, targetLocationId)
+    await executePunch({
+      method: 'qr',
+      token,
+      locationId: targetLocationId,
+    })
   }
 
-  // إرسال الطلب إلى الخادم
-  const processPunch = async (token, locId) => {
+  // =========================================================================
+  // تنفيذ البصمة عبر الموقع الجغرافي (GPS) - تتطلب التواجد داخل الدائرة
+  // =========================================================================
+  const handleGpsPunch = async () => {
+    if (!verifiedEmployee) {
+      alert('يرجى تأكيد هوية الموظف أولاً.')
+      return
+    }
+
+    if (!isInRange) {
+      alert('لا يمكنك تسجيل البصمة لأنك خارج نطاق موقع العمل!')
+      return
+    }
+
+    await executePunch({
+      method: 'gps',
+      token: null,
+      locationId: location?.id,
+    })
+  }
+
+  // الدالة العامة لتسجيل البصمة
+  const executePunch = async ({ method, token, locationId }) => {
     try {
       setSubmitting(true)
       setPunchResult(null)
@@ -259,11 +276,12 @@ export default function EmployeePunch() {
       const response = await submitCheckIn({
         employee_code: verifiedEmployee.employee_code,
         device_id: deviceId,
-        token: token,
-        location_id: locId || location?.id,
-        lat: userCoords?.lat,
-        lng: userCoords?.lng,
-        accuracy: userCoords?.accuracy || 10,
+        token: token || null,
+        location_id: locationId || location?.id,
+        lat: userCoords?.lat || null,
+        lng: userCoords?.lng || null,
+        accuracy: userCoords?.accuracy || null,
+        method,
       })
 
       if (response.success) {
@@ -271,6 +289,7 @@ export default function EmployeePunch() {
         setPunchResult({
           status: 'success',
           type: response.type,
+          method: response.method,
           title: response.type === 'in' ? 'تم تسجيل الحضور بنجاح' : 'تم تسجيل الانصراف بنجاح',
           message: response.message,
           employee_name: response.employee_name,
@@ -330,7 +349,7 @@ export default function EmployeePunch() {
               <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
                   <User className="w-3.5 h-3.5 text-blue-400" />
-                  الرقم التعريفي للموظف (4 أرقام)
+                  أدخل رقمك التعريفي (4 أرقام)
                 </span>
                 <span className="text-[10px] text-slate-500 font-mono">مثال: 1001، 1002</span>
               </label>
@@ -388,7 +407,7 @@ export default function EmployeePunch() {
             </div>
           </form>
         ) : (
-          /* بطاقة الموظف المؤكد هويته */
+          /* بطاقة الموظف بعد التحقق */
           <div className="bg-slate-900/90 border border-blue-500/40 rounded-3xl p-4 shadow-xl backdrop-blur-md relative overflow-hidden animate-in fade-in">
             <div className="absolute top-0 right-0 w-24 h-24 bg-blue-600/10 rounded-full blur-2xl -mr-6 -mt-6 pointer-events-none" />
 
@@ -429,132 +448,183 @@ export default function EmployeePunch() {
         )}
 
         {/* ======================================================== */}
-        {/* 2. قسم التحقق من الموقع الجغرافي (GPS Geofence) */}
+        {/* 2. اختيار طريقة البصمة (مسح الباركود أو بصمة الموقع) */}
         {/* ======================================================== */}
-        <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-3.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-blue-400" />
-              <span className="text-xs font-bold text-slate-200">
-                {location ? location.name : 'موقع العمل'}
-              </span>
-            </div>
-
-            <button
-              onClick={requestLocation}
-              disabled={gpsStatus === 'locating'}
-              className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-400 hover:text-blue-300 bg-blue-950/50 hover:bg-blue-900/50 border border-blue-800/50 px-2.5 py-1.5 rounded-xl transition cursor-pointer"
-            >
-              <Navigation className={`w-3 h-3 ${gpsStatus === 'locating' ? 'animate-spin' : ''}`} />
-              <span>{gpsStatus === 'granted' ? 'تحديث الموقع' : 'تحديد موقعي (GPS)'}</span>
-            </button>
-          </div>
-
-          {/* حالات الموقع */}
-          {!location && (
-            <div className="p-3 rounded-2xl bg-amber-950/50 border border-amber-900/50 text-amber-200 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>جاري انتظار تحميل إحداثيات موقع العمل...</span>
-            </div>
-          )}
-
-          {location && gpsStatus === 'idle' && (
-            <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800 text-slate-400 text-xs text-center">
-              اضغط على "تحديد موقعي" للتحقق من تواجدك داخل مقر المنشأة قبل المسح.
-            </div>
-          )}
-
-          {location && gpsStatus === 'locating' && (
-            <div className="p-3 rounded-2xl bg-blue-950/40 border border-blue-900/50 text-blue-300 text-xs flex items-center justify-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
-              <span>جاري الاتصال بالأقمار الصناعية وتحديد إحداثياتك بدقة...</span>
-            </div>
-          )}
-
-          {gpsStatus === 'denied' && (
-            <div className="p-3 rounded-2xl bg-red-950/50 border border-red-900/50 text-red-200 text-xs flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-              <span>{gpsError}</span>
-            </div>
-          )}
-
-          {location && gpsStatus === 'granted' && (
-            <div className="space-y-2">
-              <div
-                className={`p-3 rounded-2xl border flex items-center justify-between text-xs font-semibold ${
-                  isInRange
-                    ? 'bg-emerald-950/40 border-emerald-800/50 text-emerald-300'
-                    : 'bg-amber-950/40 border-amber-800/50 text-amber-300'
+        {verifiedEmployee && (
+          <div className="space-y-4 animate-in fade-in">
+            {/* شريط التبديل بين الطريقتين */}
+            <div className="grid grid-cols-2 gap-2 bg-slate-900/80 p-1.5 rounded-2xl border border-slate-800">
+              <button
+                type="button"
+                onClick={() => setPunchMethod('qr')}
+                className={`py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+                  punchMethod === 'qr'
+                    ? 'bg-blue-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <div className="flex items-center gap-2">
-                  {isInRange ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  ) : (
-                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                  )}
-                  <span>
-                    {isInRange
-                      ? `أنت داخل نطاق العمل (${distanceToWork ?? 0} متراً من المقر)`
-                      : `أنت خارج نطاق العمل (${distanceToWork ?? 'غير محدد'} متراً - المسموح ${location.radius_m}م)`}
-                  </span>
-                </div>
-              </div>
+                <Camera className="w-4 h-4" />
+                <span>مسح الباركود (QR)</span>
+              </button>
 
-              {userCoords?.accuracy && (
-                <p className="text-[10px] text-slate-500 text-center font-mono">
-                  دقة إشارة GPS الحالية: ±{Math.round(userCoords.accuracy)} متر
-                </p>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setPunchMethod('gps')
+                  if (gpsStatus === 'idle') requestLocation()
+                }}
+                className={`py-2.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer ${
+                  punchMethod === 'gps'
+                    ? 'bg-emerald-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Compass className="w-4 h-4" />
+                <span>بصمة الموقع (GPS)</span>
+              </button>
             </div>
-          )}
-        </div>
 
-        {/* ======================================================== */}
-        {/* 3. زر مسح الباركود بالكاميرا */}
-        {/* ======================================================== */}
-        <div>
-          <button
-            onClick={startScanner}
-            disabled={!verifiedEmployee || !isInRange || submitting}
-            className={`w-full py-4 px-6 rounded-2xl font-bold text-sm shadow-xl transition flex items-center justify-center gap-2.5 cursor-pointer ${
-              verifiedEmployee && isInRange && !submitting
-                ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/30 active:scale-[0.98]'
-                : 'bg-slate-800/80 text-slate-500 border border-slate-800 cursor-not-allowed opacity-60'
-            }`}
-          >
-            {submitting ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                <span>جاري التحقق وتسجيل البصمة...</span>
-              </>
-            ) : (
-              <>
-                <Camera className="w-5 h-5" />
-                <span>
-                  {verifiedEmployee
-                    ? `مسح باركود البصمة باسم (${verifiedEmployee.name.split(' ')[0]})`
-                    : 'مسح باركود الحضور / الانصراف'}
-                </span>
-              </>
+            {/* ---------------------------------------------------- */}
+            {/* أ) شاشة طريقة مسح الباركود (لا تتطلب فحص موقع) */}
+            {/* ---------------------------------------------------- */}
+            {punchMethod === 'qr' && (
+              <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4 text-center">
+                <div className="p-3 bg-blue-950/40 border border-blue-800/40 rounded-2xl text-xs text-blue-200 leading-relaxed text-right">
+                  <strong>💡 ميزة مسح الباركود:</strong> لا تتطلب فحص الموقع الجغرافي؛ لأن الرمز يتجدد كل 10 ثوانٍ ولا يوجد إلا على شاشة الاستقبال داخل المقر.
+                </div>
+
+                <button
+                  type="button"
+                  onClick={startScanner}
+                  disabled={submitting}
+                  className="w-full py-4 px-6 rounded-2xl font-bold text-sm bg-blue-600 hover:bg-blue-500 text-white shadow-xl shadow-blue-600/30 transition flex items-center justify-center gap-2.5 cursor-pointer active:scale-[0.98]"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>جاري المعالجة...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="w-5 h-5" />
+                      <span>فتح الكاميرا ومسح باركود الشاشة</span>
+                    </>
+                  )}
+                </button>
+              </div>
             )}
-          </button>
 
-          {!verifiedEmployee && (
-            <p className="text-[11px] text-slate-500 text-center mt-2">
-              * أدخل رقمك الوظيفي أولاً واضغط "تأكيد الهوية" للتعرف على اسمك.
-            </p>
-          )}
+            {/* ---------------------------------------------------- */}
+            {/* ب) شاشة طريقة بصمة الموقع الجغرافي (تتطلب التواجد بالدائرة) */}
+            {/* ---------------------------------------------------- */}
+            {punchMethod === 'gps' && (
+              <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-emerald-400" />
+                    <span className="text-xs font-bold text-slate-200">
+                      {location ? location.name : 'موقع العمل'}
+                    </span>
+                  </div>
 
-          {verifiedEmployee && !isInRange && gpsStatus === 'granted' && (
-            <p className="text-[11px] text-amber-400/90 text-center mt-2">
-              * يجب أن تتواجد داخل نطاق المقر لتفعيل زر مسح الباركود.
-            </p>
-          )}
-        </div>
+                  <button
+                    onClick={requestLocation}
+                    disabled={gpsStatus === 'locating'}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 bg-emerald-950/50 hover:bg-emerald-900/50 border border-emerald-800/50 px-2.5 py-1.5 rounded-xl transition cursor-pointer"
+                  >
+                    <Navigation className={`w-3 h-3 ${gpsStatus === 'locating' ? 'animate-spin' : ''}`} />
+                    <span>{gpsStatus === 'granted' ? 'تحديث الموقع' : 'تحديد موقعي (GPS)'}</span>
+                  </button>
+                </div>
+
+                {/* حالة الموقع */}
+                {gpsStatus === 'idle' && (
+                  <div className="p-3 rounded-2xl bg-slate-950/70 border border-slate-800 text-slate-400 text-xs text-center">
+                    اضغط على "تحديد موقعي" للتأكد من تواجدك داخل نطاق المقر قبل البصمة.
+                  </div>
+                )}
+
+                {gpsStatus === 'locating' && (
+                  <div className="p-3 rounded-2xl bg-blue-950/40 border border-blue-900/50 text-blue-300 text-xs flex items-center justify-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
+                    <span>جاري تحديد موقعك الجغرافي بالأقمار الصناعية...</span>
+                  </div>
+                )}
+
+                {gpsStatus === 'denied' && (
+                  <div className="p-3 rounded-2xl bg-red-950/50 border border-red-900/50 text-red-200 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                    <span>{gpsError}</span>
+                  </div>
+                )}
+
+                {location && gpsStatus === 'granted' && (
+                  <div className="space-y-2">
+                    <div
+                      className={`p-3.5 rounded-2xl border flex items-center justify-between text-xs font-semibold ${
+                        isInRange
+                          ? 'bg-emerald-950/40 border-emerald-800/50 text-emerald-300'
+                          : 'bg-amber-950/40 border-amber-800/50 text-amber-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {isInRange ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                        )}
+                        <span>
+                          {isInRange
+                            ? `أنت داخل نطاق العمل (${distanceToWork ?? 0} متراً من المقر)`
+                            : `أنت خارج نطاق العمل (${distanceToWork ?? 'غير محدد'} متراً - المسموح ${location.radius_m}م)`}
+                        </span>
+                      </div>
+                    </div>
+
+                    {userCoords?.accuracy && (
+                      <p className="text-[10px] text-slate-500 text-center font-mono">
+                        دقة إشارة GPS الحالية: ±{Math.round(userCoords.accuracy)} متر
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* زر البصمة عبر الموقع */}
+                <button
+                  type="button"
+                  onClick={handleGpsPunch}
+                  disabled={!isInRange || submitting}
+                  className={`w-full py-4 px-6 rounded-2xl font-bold text-sm shadow-xl transition flex items-center justify-center gap-2.5 cursor-pointer ${
+                    isInRange && !submitting
+                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30 active:scale-[0.98]'
+                      : 'bg-slate-800/80 text-slate-500 border border-slate-800 cursor-not-allowed opacity-60'
+                  }`}
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>جاري تسجيل البصمة...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Compass className="w-5 h-5" />
+                      <span>تسجيل البصمة عبر الموقع (GPS)</span>
+                    </>
+                  )}
+                </button>
+
+                {!isInRange && gpsStatus === 'granted' && (
+                  <p className="text-[11px] text-amber-400/90 text-center">
+                    * يجب أن تتواجد داخل دائرة المقر لتسجيل البصمة الجغرافية.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ======================================================== */}
-        {/* 4. بطاقة عرض النتيجة (نجاح / تنبيه / خطأ) */}
+        {/* 3. بطاقة عرض النتيجة (نجاح / تنبيه / خطأ) */}
         {/* ======================================================== */}
         {punchResult && (
           <div
@@ -607,9 +677,7 @@ export default function EmployeePunch() {
         )}
       </div>
 
-      {/* ======================================================== */}
-      {/* 5. نافذة الكاميرا والماسح المنبثقة */}
-      {/* ======================================================== */}
+      {/* نافذة الكاميرا والماسح المنبثقة */}
       {isScanning && (
         <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-3xl p-5 shadow-2xl relative">
@@ -626,7 +694,6 @@ export default function EmployeePunch() {
               </button>
             </div>
 
-            {/* مربع معاينة الكاميرا */}
             <div className="overflow-hidden rounded-2xl bg-black aspect-square relative border-2 border-dashed border-blue-500/50">
               <div id="qr-reader" className="w-full h-full" />
             </div>

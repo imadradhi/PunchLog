@@ -1,9 +1,7 @@
 import { supabase } from './supabase'
 
 /**
- * دالة استدعاء تسجيل البصمة الموحدة
- * تحاول استدعاء Edge Function (check-in) في الخادم، وإذا لم تكن منشورة بعد،
- * تستدعي دالة الخادم الآمنة (check_in_rpc) كبديل متطابق تماماً في التحقق.
+ * دالة استدعاء تسجيل البصمة الموحدة (تدعم بصمة الباركود QR وبصمة الموقع GPS)
  */
 export async function submitCheckIn({
   employee_code,
@@ -13,19 +11,21 @@ export async function submitCheckIn({
   lat,
   lng,
   accuracy,
+  method = 'qr',
 }) {
   const payload = {
     employee_code: employee_code.trim().toUpperCase(),
     device_id,
-    token,
-    location_id,
-    lat,
-    lng,
-    accuracy,
+    token: token || null,
+    location_id: location_id || null,
+    lat: lat !== undefined ? lat : null,
+    lng: lng !== undefined ? lng : null,
+    accuracy: accuracy || null,
+    method,
   }
 
+  // 1. محاولة استدعاء Supabase Edge Function
   try {
-    // 1. محاولة استدعاء Supabase Edge Function
     const { data, error } = await supabase.functions.invoke('check-in', {
       body: payload,
     })
@@ -33,14 +33,11 @@ export async function submitCheckIn({
     if (!error && data) {
       return data
     }
-
-    // إذا كان الخطأ متعلقاً بعدم نشر دالة Edge بعد (404 / FunctionsFetchError)، ننتقل للبديل
-    console.warn('Edge Function returned error, trying RPC fallback:', error)
   } catch (err) {
-    console.warn('Edge Function invoke failed, trying RPC fallback:', err)
+    // الانتقال للـ RPC البديل
   }
 
-  // 2. البديل المباشر: استدعاء دالة check_in_rpc في قاعدة البيانات بصلاحيات SECURITY DEFINER
+  // 2. البديل المباشر: استدعاء دالة check_in_rpc في قاعدة البيانات
   const { data: rpcData, error: rpcError } = await supabase.rpc('check_in_rpc', {
     p_employee_code: payload.employee_code,
     p_device_id: payload.device_id,
@@ -49,12 +46,27 @@ export async function submitCheckIn({
     p_lat: payload.lat,
     p_lng: payload.lng,
     p_accuracy: payload.accuracy,
+    p_method: payload.method,
   })
 
   if (rpcError) {
+    // في حال كانت الدالة السابقة لا تزال بـ 7 معاملات (بدون p_method)
+    if (rpcError.message?.includes('schema cache') || rpcError.code === 'PGRST202') {
+      const fallbackOldRpc = await supabase.rpc('check_in_rpc', {
+        p_employee_code: payload.employee_code,
+        p_device_id: payload.device_id,
+        p_token: payload.token || 'gps_pass',
+        p_location_id: payload.location_id,
+        p_lat: payload.lat || 0,
+        p_lng: payload.lng || 0,
+        p_accuracy: payload.accuracy || 10,
+      })
+      if (!fallbackOldRpc.error && fallbackOldRpc.data) {
+        return fallbackOldRpc.data
+      }
+    }
     throw new Error(rpcError.message || 'فشل الاتصال بخادم تسجيل الحضور.')
   }
 
   return rpcData
 }
-
