@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import { 
   History, Calendar, Filter, User, ArrowDownRight, 
-  ArrowUpLeft, RefreshCw, AlertCircle, Loader2, MapPin 
+  ArrowUpLeft, RefreshCw, AlertCircle, Loader2, MapPin,
+  QrCode, Navigation
 } from 'lucide-react'
 import { formatArabicDateTime } from '../../lib/utils'
 
@@ -44,6 +45,7 @@ export default function AttendanceLog() {
         .select(`
           id,
           type,
+          method,
           lat,
           lng,
           accuracy,
@@ -259,6 +261,7 @@ export default function AttendanceLog() {
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 text-xs font-semibold">
                 <tr>
                   <th className="py-3.5 px-4">نوع الحركة</th>
+                  <th className="py-3.5 px-4">طريقة البصمة</th>
                   <th className="py-3.5 px-4">اسم الموظف</th>
                   <th className="py-3.5 px-4">الرقم الوظيفي</th>
                   <th className="py-3.5 px-4">القسم</th>
@@ -292,6 +295,19 @@ export default function AttendanceLog() {
                             </>
                           )}
                         </span>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        {log.method === 'gps' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <Navigation className="w-3 h-3 text-emerald-600" />
+                            <span>الموقع GPS</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200">
+                            <QrCode className="w-3 h-3 text-purple-600" />
+                            <span>باركود QR</span>
+                          </span>
+                        )}
                       </td>
                       <td className="py-3.5 px-4 font-semibold text-slate-900">
                         {log.employees?.name || 'موظف محذوف'}
