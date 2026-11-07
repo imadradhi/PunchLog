@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
-// ترويسات CORS للسماح بالاتصال من الواجهة الأمامية
+// ترويسات CORS للسماح بالاتصال المباشر من الواجهة الأمامية بدون قيود
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -47,25 +47,34 @@ serve(async (req: Request) => {
     }
 
     const body = await req.json()
-    const { employee_code, device_id, token, location_id, lat, lng, accuracy } = body
+    const { 
+      employee_code, 
+      device_id, 
+      token, 
+      location_id, 
+      lat, 
+      lng, 
+      accuracy, 
+      method = (token ? 'qr' : 'gps') 
+    } = body
 
-    // 2. التحقق من اكتمال المعاملات الأساسية
-    if (!employee_code || !device_id || !token || !location_id || lat === undefined || lng === undefined) {
+    // 2. التحقق من اكتمال المعاملات الأساسية للموظف والجهاز
+    if (!employee_code || !device_id) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: "بيانات الطلب غير مكتملة. تأكد من إرسال الرقم الوظيفي، الباركود، وإحداثيات GPS.",
+          error: "بيانات الطلب غير مكتملة (يرجى توفير الرقم التعريفي ومعرّف الجهاز).",
         }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       )
     }
 
-    // 3. تهيئة عميل Supabase بصلاحيات service_role لتنفيذ التحقق بأمان وتجاوز قيود RLS
+    // 3. تهيئة عميل Supabase بصلاحيات service_role (لتخطي قيود RLS وتنفيذ البصمة بأمان بدون JWT مستخدم)
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? ""
     const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
 
     if (!supabaseUrl || !supabaseServiceRoleKey) {
-      console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables")
+      console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY")
       return new Response(
         JSON.stringify({
           success: false,
@@ -85,13 +94,13 @@ serve(async (req: Request) => {
       .from("employees")
       .select("*")
       .eq("employee_code", normalizedCode)
-      .single()
+      .maybeSingle()
 
     if (empError || !employee) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: `الرقم الوظيفي (${normalizedCode}) غير موجود في النظام. يرجى مراجعة إدارة الموارد البشرية.`,
+          error: `الرقم الوظيفي (${normalizedCode}) غير موجود في النظام. يرجى مراجعة الإدارة.`,
         }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       )
@@ -101,13 +110,15 @@ serve(async (req: Request) => {
       return new Response(
         JSON.stringify({
           success: false,
-          error: `حساب الموظف (${employee.name}) موقوف حالياً. لا يمكن تسجيل البصمة.`,
+          error: `حساب الموظف (${employee.name}) موقوف حالياً من قبل الإدارة.`,
         }),
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       )
     }
 
     // 5. التحقق الصارم من ربط الجهاز (Device Binding Verification)
+    const serverNow = new Date()
+
     if (employee.device_status === "none" || !employee.device_id) {
       // أول دخول للموظف: حفظ الجهاز بحالة معلق بانتظار موافقة المدير
       await supabase
@@ -115,7 +126,7 @@ serve(async (req: Request) => {
         .update({
           device_id: device_id,
           device_status: "pending",
-          device_registered_at: new Date().toISOString(),
+          device_registered_at: serverNow.toISOString(),
         })
         .eq("id", employee.id)
 
@@ -123,7 +134,7 @@ serve(async (req: Request) => {
         JSON.stringify({
           success: false,
           is_device_pending: true,
-          error: `مرحباً ${employee.name}. تم تسجيل جهازك الجديد لأول مرة، يرجى انتظار موافقة مدير النظام لاعتماده قبل تسجيل البصمة.`,
+          error: `مرحباً ${employee.name}. تم تسجيل هاتفك لأول مرة، يرجى انتظار موافقة مدير النظام لاعتماده قبل تسجيل البصمة.`,
         }),
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       )
@@ -134,7 +145,7 @@ serve(async (req: Request) => {
         JSON.stringify({
           success: false,
           is_device_pending: true,
-          error: `طلب ربط هذا الجهاز ما زال بانتظار موافقة مدير النظام. يرجى التواصل مع مسؤول الفرع.`,
+          error: `طلب ربط هذا الجهاز ما زال بانتظار موافقة مدير النظام. يرجى مراجعة الإدارة.`,
         }),
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       )
@@ -150,24 +161,23 @@ serve(async (req: Request) => {
       )
     }
 
-    // 6. التحقق من صلاحية دقة GPS (GPS Accuracy Check)
-    const userAccuracy = Number(accuracy) || 0
-    if (userAccuracy > 300) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: `إشارة الـ GPS ضعيفة جداً (الدقة الحالية: ±${Math.round(userAccuracy)}م والحد الأقصى المقبول 300م). يرجى التواجد في مكان مكشوف أو تفعيل دقة الموقع العالية.`,
-        }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      )
+    // جلب موقع العمل الأساسي إذا لم يُمرر
+    let targetLocationId = location_id
+    if (!targetLocationId) {
+      const { data: defaultLoc } = await supabase
+        .from("locations")
+        .select("id")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle()
+      targetLocationId = defaultLoc?.id
     }
 
-    // 7. التحقق من موقع العمل والمسافة الجغرافية (Geofence Verification)
     const { data: location, error: locError } = await supabase
       .from("locations")
       .select("*")
-      .eq("id", location_id)
-      .single()
+      .eq("id", targetLocationId)
+      .maybeSingle()
 
     if (locError || !location) {
       return new Response(
@@ -179,73 +189,111 @@ serve(async (req: Request) => {
       )
     }
 
-    const distanceMeters = calculateHaversineDistance(
-      Number(lat),
-      Number(lng),
-      location.lat,
-      location.lng
-    )
+    // =========================================================================
+    // الطريقة الأولى: البصمة عبر مسح الباركود (QR Code Scan)
+    // لا تتطلب فحص موقع GPS لأن الباركود لا يتواجد إلا داخل المقر ويتجدد كل 10 ثوانٍ
+    // =========================================================================
+    if (method === 'qr' || (token && String(token).trim() !== '')) {
+      if (!token || String(token).trim() === '') {
+        return new Response(
+          JSON.stringify({ success: false, error: "يرجى مسح رمز الباركود المعروض على الشاشة." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
 
-    if (distanceMeters > location.radius_m) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: `أنت خارج نطاق موقع العمل المعتمد (${location.name}). أنت على بعد ${distanceMeters} متراً، والحد الأقصى المسموح به هو ${location.radius_m} متراً.`,
-          distance: distanceMeters,
-          radius: location.radius_m,
-        }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      // التحقق من صلاحية رمز الباركود
+      const { data: qrRecord, error: qrError } = await supabase
+        .from("qr_tokens")
+        .select("*")
+        .eq("token", String(token).trim())
+        .maybeSingle()
+
+      if (qrError || !qrRecord) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "رمز الباركود غير صالح أو لم يُنشأ من خادم النظام.",
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
+
+      if (qrRecord.used) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "تم استخدام هذا الرمز من قبل! يرجى مسح الرمز الجديد المتجدد على الشاشة.",
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
+
+      const expiresAt = new Date(qrRecord.expires_at)
+      if (serverNow.getTime() > expiresAt.getTime()) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "انتهت صلاحية رمز الباركود (يتجدد كل 10 ثوانٍ). يرجى مسح الرمز الحالي على الشاشة.",
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
+
+      // إبطال الرمز فوراً لمنع تكراره
+      await supabase
+        .from("qr_tokens")
+        .update({ used: true })
+        .eq("token", qrRecord.token)
+
+    // =========================================================================
+    // الطريقة الثانية: البصمة عبر الموقع الجغرافي (GPS Geofence)
+    // تتطلب فحص تواجد الموظف داخل دائرة الموقع مع دقة GPS مقبولة (حتى 300م)
+    // =========================================================================
+    } else {
+      if (lat === undefined || lng === undefined || lat === null || lng === null) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "إحداثيات الموقع الجغرافي غير متوفرة. يرجى تفعيل الـ GPS في هاتفك والمحاولة مجدداً.",
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
+
+      // التحقق من دقة إشارة GPS (الحد الأقصى 300م ليناسب المباني وتجارب المتصفح)
+      const userAccuracy = Number(accuracy) || 0
+      if (userAccuracy > 300) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: `إشارة الـ GPS ضعيفة جداً (الدقة الحالية: ±${Math.round(userAccuracy)}م والحد الأقصى المقبول 300م). يرجى التواجد في مكان مكشوف أو تفعيل دقة الموقع العالية.`,
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
+
+      // حساب المسافة الحقيقية بالمتر
+      const distanceMeters = calculateHaversineDistance(
+        Number(lat),
+        Number(lng),
+        location.lat,
+        location.lng
       )
+
+      if (distanceMeters > location.radius_m) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: `أنت خارج نطاق موقع العمل المعتمد (${location.name}). أنت على بعد ${distanceMeters} متراً، والحد الأقصى المسموح به هو ${location.radius_m} متراً.`,
+            distance: distanceMeters,
+            radius: location.radius_m,
+          }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        )
+      }
     }
 
-    // 8. التحقق من صلاحية رمز الباركود (QR Token Verification)
-    const serverNow = new Date()
-    const { data: qrRecord, error: qrError } = await supabase
-      .from("qr_tokens")
-      .select("*")
-      .eq("token", token)
-      .eq("location_id", location_id)
-      .single()
-
-    if (qrError || !qrRecord) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "رمز الباركود غير صالح أو لم يُنشأ لهذا الموقع. يرجى مسح الرمز المعروض على الشاشة.",
-        }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      )
-    }
-
-    if (qrRecord.used) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "تم استخدام هذا الرمز من قبل! يرجى مسح الرمز الجديد المتجدد على الشاشة.",
-        }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      )
-    }
-
-    // التحقق من الوقت مع سماحية 5 ثوانٍ إضافية لحالات بطء الشبكة
-    const expiresAt = new Date(qrRecord.expires_at)
-    if (serverNow.getTime() > expiresAt.getTime()) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "انتهت صلاحية رمز الباركود (يتجدد كل 10 ثوانٍ). يرجى مسح الرمز الحالي على الشاشة.",
-        }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      )
-    }
-
-    // إبطال الرمز فوراً لمنع إعادة استخدامه من أي جهاز آخر (Concurrency Safe)
-    await supabase
-      .from("qr_tokens")
-      .update({ used: true })
-      .eq("token", token)
-
-    // 9. تحديد نوع العملية (حضور أم انصراف تلقائياً حسب آخر حركة)
+    // 6. تحديد نوع العملية (حضور أم انصراف تلقائياً)
     const { data: lastAttendance } = await supabase
       .from("attendance")
       .select("type, created_at")
@@ -254,7 +302,7 @@ serve(async (req: Request) => {
       .limit(1)
       .maybeSingle()
 
-    // منع الحركات المتكررة السريعة (خلال 30 ثانية من نفس الموظف)
+    // منع الحركات المتكررة السريعة خلال 30 ثانية
     if (lastAttendance) {
       const lastTime = new Date(lastAttendance.created_at).getTime()
       const diffSeconds = (serverNow.getTime() - lastTime) / 1000
@@ -262,17 +310,17 @@ serve(async (req: Request) => {
         return new Response(
           JSON.stringify({
             success: false,
-            error: `تم تسجيل بصمتك قبل قليل (${Math.round(diffSeconds)} ثانية). يرجى الانتظار دقيقة واحدة على الأقل قبل تسجيل بصمة جديدة.`,
+            error: `تم تسجيل بصمتك قبل قليل (${Math.round(diffSeconds)} ثانية). يرجى الانتظار 30 ثانية قبل تسجيل بصمة جديدة.`,
           }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         )
       }
     }
 
-    // إذا كانت آخر حركة حضور (in)، تصبح الحركة الجديدة انصراف (out)، والعكس
     const nextType: "in" | "out" = lastAttendance?.type === "in" ? "out" : "in"
+    const punchMethodUsed = method === 'gps' ? 'gps' : 'qr'
 
-    // 10. تسجيل الحركة المعتمدة في جدول الحضور (Attendance Recording)
+    // 7. تسجيل الحركة في جدول الحضور
     const { data: newRecord, error: insertError } = await supabase
       .from("attendance")
       .insert([
@@ -280,9 +328,10 @@ serve(async (req: Request) => {
           employee_id: employee.id,
           location_id: location.id,
           type: nextType,
-          lat: Number(lat),
-          lng: Number(lng),
-          accuracy: userAccuracy,
+          method: punchMethodUsed,
+          lat: lat !== undefined && lat !== null ? Number(lat) : location.lat,
+          lng: lng !== undefined && lng !== null ? Number(lng) : location.lng,
+          accuracy: accuracy ? Number(accuracy) : 10,
           created_at: serverNow.toISOString(),
         },
       ])
@@ -300,12 +349,12 @@ serve(async (req: Request) => {
       )
     }
 
-    // 11. إرجاع استجابة النجاح المعتمدة
+    // 8. إرجاع استجابة النجاح
     const typeArabic = nextType === "in" ? "تسجيل الحضور (دخول)" : "تسجيل الانصراف (خروج)"
+    const methodArabic = punchMethodUsed === 'gps' ? 'بصمة الموقع الجغرافي GPS' : 'مسح باركود الشاشة QR'
     const timeFormatted = serverNow.toLocaleTimeString("ar-SA", {
       hour: "2-digit",
       minute: "2-digit",
-      second: "2-digit",
       hour12: true,
     })
 
@@ -313,11 +362,12 @@ serve(async (req: Request) => {
       JSON.stringify({
         success: true,
         type: nextType,
+        method: punchMethodUsed,
         employee_name: employee.name,
         employee_code: employee.employee_code,
         location_name: location.name,
         timestamp: serverNow.toISOString(),
-        message: `تم ${typeArabic} بنجاح للموظف (${employee.name}) في تمام الساعة ${timeFormatted}.`,
+        message: `تم ${typeArabic} بنجاح للموظف (${employee.name}) عبر (${methodArabic}) في تمام الساعة ${timeFormatted}.`,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     )
@@ -332,4 +382,3 @@ serve(async (req: Request) => {
     )
   }
 })
-
