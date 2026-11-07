@@ -73,10 +73,10 @@ export default function AdminDashboard() {
               {/* بيانات المدير الحالي من قاعدة البيانات */}
               <div className="text-left hidden sm:block">
                 <p className="text-xs font-bold text-slate-800 truncate max-w-[180px]">
-                  {adminUser.name || adminUser.email}
+                  {adminUser.name || adminUser.username}
                 </p>
                 <p className="text-[10px] text-emerald-600 font-medium">
-                  {adminUser.role === 'super_admin' ? 'مدير عام' : 'مدير معتمد'} ({adminUser.email})
+                  {adminUser.role === 'super_admin' ? 'مدير عام' : 'مدير معتمد'} (@{adminUser.username || adminUser.name})
                 </p>
               </div>
 

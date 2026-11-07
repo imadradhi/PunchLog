@@ -1,10 +1,10 @@
 import React, { useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
-import { ShieldCheck, Mail, Lock, AlertCircle, Loader2 } from 'lucide-react'
+import { ShieldCheck, User, Lock, AlertCircle, Loader2 } from 'lucide-react'
 
 export default function AdminLogin({ onLoginSuccess }) {
   const { signIn, isConfigured } = useAuth()
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
   const [loading, setLoading] = useState(false)
@@ -13,23 +13,17 @@ export default function AdminLogin({ onLoginSuccess }) {
     e.preventDefault()
     setErrorMsg('')
 
-    if (!email || !password) {
-      setErrorMsg('يرجى إدخال البريد الإلكتروني وكلمة المرور.')
+    if (!username.trim() || !password) {
+      setErrorMsg('يرجى إدخال اسم المستخدم وكلمة المرور.')
       return
     }
 
     try {
       setLoading(true)
-      await signIn(email, password)
+      await signIn(username.trim(), password)
       if (onLoginSuccess) onLoginSuccess()
     } catch (err) {
-      if (err.message?.includes('Invalid login credentials')) {
-        setErrorMsg('بيانات الدخول غير صحيحة، يرجى التحقق من البريد وكلمة المرور.')
-      } else if (err.message?.includes('Email not confirmed')) {
-        setErrorMsg('البريد الإلكتروني لم يتم تأكيده بعد.')
-      } else {
-        setErrorMsg(err.message || 'حدث خطأ أثناء محاولة تسجيل الدخول.')
-      }
+      setErrorMsg(err.message || 'بيانات الدخول غير صحيحة، يرجى المحاولة ثانية.')
     } finally {
       setLoading(false)
     }
@@ -68,18 +62,19 @@ export default function AdminLogin({ onLoginSuccess }) {
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-              البريد الإلكتروني
+              اسم المستخدم (Username)
             </label>
             <div className="relative">
               <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@example.com"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="مثال: admin"
                 required
-                className="w-full bg-slate-900/80 border border-slate-700 rounded-xl px-4 py-3 pl-10 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm transition"
+                autoComplete="username"
+                className="w-full bg-slate-900/80 border border-slate-700 rounded-xl px-4 py-3 pl-10 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm transition font-mono"
               />
-              <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
+              <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
             </div>
           </div>
 
@@ -94,6 +89,7 @@ export default function AdminLogin({ onLoginSuccess }) {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
+                autoComplete="current-password"
                 className="w-full bg-slate-900/80 border border-slate-700 rounded-xl px-4 py-3 pl-10 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm transition"
               />
               <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
@@ -117,8 +113,8 @@ export default function AdminLogin({ onLoginSuccess }) {
         </form>
 
         <div className="mt-8 pt-4 border-t border-slate-700/60 text-center space-y-2">
-          <p className="text-[11px] text-slate-500">
-            الحساب الافتراضي في جدول المدراء: <code className="text-blue-400 font-mono">admin@punchlog.com</code> | كلمة المرور: <code className="text-blue-400 font-mono">admin123</code>
+          <p className="text-[11px] text-slate-400">
+            الحساب الافتراضي: اسم المستخدم <code className="text-blue-400 font-mono bg-slate-900/80 px-1.5 py-0.5 rounded">admin</code> | كلمة المرور <code className="text-blue-400 font-mono bg-slate-900/80 px-1.5 py-0.5 rounded">admin123</code>
           </p>
           <div>
             <a href="/" className="text-xs text-slate-400 hover:text-blue-400 transition">

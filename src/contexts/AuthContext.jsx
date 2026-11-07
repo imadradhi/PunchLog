@@ -24,14 +24,14 @@ export const AuthProvider = ({ children }) => {
   }, [])
 
   // تسجيل الدخول بالاعتماد على جدول admins في قاعدة البيانات
-  const signIn = async (email, password) => {
+  const signIn = async (username, password) => {
     if (!isConfigured) {
       throw new Error('يرجى ضبط بيانات الاتصال بـ Supabase في ملف .env أولاً')
     }
 
-    // 1. محاولة تسجيل الدخول عبر جدول المدراء المشفّر (Database Admins Table)
+    // 1. محاولة تسجيل الدخول عبر جدول المدراء المشفّر (باسم المستخدم)
     const { data, error } = await supabase.rpc('admin_login', {
-      p_email: email.trim().toLowerCase(),
+      p_username: username.trim().toLowerCase(),
       p_password: password,
     })
 
@@ -47,16 +47,17 @@ export const AuthProvider = ({ children }) => {
       return adminData
     }
 
-    // 2. محاولة بديلة عبر Supabase Auth في حال كان الحساب مسجلاً هناك
+    // 2. محاولة بديلة عبر Supabase Auth في حال إدخال إيميل قديم
     try {
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email,
+        email: username,
         password,
       })
       if (!authError && authData?.user) {
         const fallbackAdmin = {
           id: authData.user.id,
           name: authData.user.user_metadata?.name || 'مدير النظام',
+          username: authData.user.email?.split('@')[0] || 'admin',
           email: authData.user.email,
           role: 'admin',
         }
@@ -68,7 +69,7 @@ export const AuthProvider = ({ children }) => {
       // تجاهل
     }
 
-    throw new Error(error?.message || 'بيانات الدخول غير صحيحة، يرجى التحقق من البريد وكلمة المرور.')
+    throw new Error(error?.message || 'اسم المستخدم أو كلمة المرور غير صحيحة.')
   }
 
   // تسجيل الخروج

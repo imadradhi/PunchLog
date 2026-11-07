@@ -19,7 +19,7 @@ export default function AdminAccountsManager() {
   // حقول إضافة مدير جديد
   const [formData, setFormData] = useState({
     name: '',
-    email: '',
+    username: '',
     password: '',
     role: 'admin',
   })
@@ -50,7 +50,7 @@ export default function AdminAccountsManager() {
     setErrorMsg('')
     setSuccessMsg('')
 
-    if (!formData.name.trim() || !formData.email.trim() || !formData.password) {
+    if (!formData.name.trim() || !formData.username.trim() || !formData.password) {
       setErrorMsg('يرجى ملء كافة الحقول.')
       return
     }
@@ -64,7 +64,7 @@ export default function AdminAccountsManager() {
       setSubmitting(true)
       const { data, error } = await supabase.rpc('create_admin', {
         p_name: formData.name.trim(),
-        p_email: formData.email.trim().toLowerCase(),
+        p_username: formData.username.trim().toLowerCase(),
         p_password: formData.password,
         p_role: formData.role,
       })
@@ -75,9 +75,9 @@ export default function AdminAccountsManager() {
         throw new Error(data.error)
       }
 
-      setSuccessMsg(`تم إنشاء حساب المدير (${formData.name}) بنجاح وتم تشفير كلمة المرور في قاعدة البيانات.`)
+      setSuccessMsg(`تم إنشاء حساب المدير (${formData.name}) بنجاح باسم مستخدم (${formData.username.toLowerCase()}).`)
       setIsModalOpen(false)
-      setFormData({ name: '', email: '', password: '', role: 'admin' })
+      setFormData({ name: '', username: '', password: '', role: 'admin' })
       fetchAdmins()
     } catch (err) {
       setErrorMsg(err.message || 'حدث خطأ أثناء إنشاء الحساب.')
@@ -207,7 +207,7 @@ export default function AdminAccountsManager() {
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 text-xs font-semibold">
                 <tr>
                   <th className="py-3.5 px-4">اسم المدير</th>
-                  <th className="py-3.5 px-4">البريد الإلكتروني</th>
+                  <th className="py-3.5 px-4">اسم المستخدم (Username)</th>
                   <th className="py-3.5 px-4">الصلاحية</th>
                   <th className="py-3.5 px-4">الحالة</th>
                   <th className="py-3.5 px-4">آخر تسجيل دخول</th>
@@ -230,8 +230,8 @@ export default function AdminAccountsManager() {
                           )}
                         </div>
                       </td>
-                      <td className="py-3.5 px-4 font-mono text-xs text-slate-700">
-                        {adm.email}
+                      <td className="py-3.5 px-4 font-mono text-xs text-blue-600 font-semibold">
+                        @{adm.username || adm.email?.split('@')[0]}
                       </td>
                       <td className="py-3.5 px-4">{getRoleBadge(adm.role)}</td>
                       <td className="py-3.5 px-4">
@@ -310,19 +310,23 @@ export default function AdminAccountsManager() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  البريد الإلكتروني (لتسجيل الدخول) <span className="text-rose-500">*</span>
+                  اسم المستخدم (Username) <span className="text-rose-500">*</span>
                 </label>
                 <div className="relative">
                   <input
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    placeholder="admin2@company.com"
+                    type="text"
+                    value={formData.username}
+                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                    placeholder="مثال: fahad, manager, admin2"
                     required
-                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm pl-10 focus:outline-none focus:border-blue-500 transition"
+                    minLength={3}
+                    className="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm pl-10 focus:outline-none focus:border-blue-500 transition font-mono"
                   />
-                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  <User className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  * 3 أحرف على الأقل (يُستخدم لتسجيل الدخول بدلاً من الإيميل).
+                </p>
               </div>
 
               <div>

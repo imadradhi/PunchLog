@@ -46,3 +46,4 @@ CREATE POLICY "Enable read access to attendance"
     FOR SELECT
     TO anon, authenticated
     USING (true);
+
