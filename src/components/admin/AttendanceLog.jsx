@@ -181,35 +181,83 @@ export default function AttendanceLog() {
     try {
       setManualSubmitting(true)
       const punchDate = new Date(manualForm.datetime)
+      const selectedLoc = locations.find((l) => l.id === manualForm.location_id) || locations[0]
+      const locId = selectedLoc ? selectedLoc.id : null
+      const locLat = selectedLoc ? selectedLoc.lat : 0
+      const locLng = selectedLoc ? selectedLoc.lng : 0
+      const notesVal = manualForm.notes.trim() || 'تسجيل يدوي بواسطة المدير'
 
-      let { error } = await supabase.from('attendance').insert([
-        {
-          employee_id: manualForm.employee_id,
-          location_id: manualForm.location_id || null,
-          type: manualForm.type,
-          method: 'manual',
-          notes: manualForm.notes.trim() || 'تسجيل يدوي بواسطة المدير',
-          accuracy: 0,
-          created_at: punchDate.toISOString(),
-        },
-      ])
+      let success = false
+      let lastErrorMessage = ''
 
-      // في حال لم يكن عمود notes مضافاً بعد
-      if (error && (error.message?.includes('notes') || error.code === '42703')) {
-        const retryRes = await supabase.from('attendance').insert([
+      // 1. المحاولة الأولى: عبر دالة الخادم الآمنة RPC لتخطي أي قيود RLS
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc('record_manual_attendance', {
+          p_employee_id: manualForm.employee_id,
+          p_type: manualForm.type,
+          p_location_id: locId,
+          p_datetime: punchDate.toISOString(),
+          p_notes: notesVal,
+        })
+
+        if (!rpcErr && (rpcRes?.success || rpcRes === true)) {
+          success = true
+        } else if (rpcErr) {
+          lastErrorMessage = rpcErr.message
+        }
+      } catch (rpcEx) {
+        lastErrorMessage = rpcEx.message
+      }
+
+      // 2. المحاولة الثانية: الإدراج المباشر في جدول attendance (مع الملاحظات والإحداثيات)
+      if (!success) {
+        let { error: insertErr } = await supabase.from('attendance').insert([
           {
             employee_id: manualForm.employee_id,
-            location_id: manualForm.location_id || null,
+            location_id: locId,
             type: manualForm.type,
             method: 'manual',
+            notes: notesVal,
+            lat: locLat,
+            lng: locLng,
             accuracy: 0,
             created_at: punchDate.toISOString(),
           },
         ])
-        error = retryRes.error
+
+        // إذا كان عمود notes غير موجود في قاعدة البيانات
+        if (insertErr && (insertErr.message?.includes('notes') || insertErr.code === '42703')) {
+          const retryRes = await supabase.from('attendance').insert([
+            {
+              employee_id: manualForm.employee_id,
+              location_id: locId,
+              type: manualForm.type,
+              method: 'manual',
+              lat: locLat,
+              lng: locLng,
+              accuracy: 0,
+              created_at: punchDate.toISOString(),
+            },
+          ])
+          insertErr = retryRes.error
+        }
+
+        if (!insertErr) {
+          success = true
+        } else {
+          lastErrorMessage = insertErr.message
+        }
       }
 
-      if (error) throw error
+      if (!success) {
+        // فحص إذا كان سبب الخطأ هو سياسة أمان RLS
+        if (lastErrorMessage?.includes('row-level security') || lastErrorMessage?.includes('RLS')) {
+          throw new Error(
+            'سياسة أمان قاعدة البيانات (RLS) تمنع إدراج الحضور يدوياً. يرجى تنفيذ سكريبت تفعيل صلاحيات جدول الحضور في Supabase SQL Editor.'
+          )
+        }
+        throw new Error(lastErrorMessage || 'فشل حفظ البصمة اليدوية في الخادم.')
+      }
 
       setSuccessMsg(`تم تسجيل حركة (${actionName}) يدوياً للموظف (${empName}) بنجاح.`)
       setIsManualModalOpen(false)
@@ -244,8 +292,26 @@ export default function AttendanceLog() {
 
     try {
       setLoading(true)
-      const { error } = await supabase.from('attendance').delete().eq('id', log.id)
-      if (error) throw error
+      let deleted = false
+
+      // المحاولة الأولى عبر RPC
+      try {
+        const { error: rpcDelErr } = await supabase.rpc('delete_attendance_record', {
+          p_id: log.id,
+        })
+        if (!rpcDelErr) deleted = true
+      } catch (_) {}
+
+      // المحاولة الثانية مباشرة
+      if (!deleted) {
+        const { error } = await supabase.from('attendance').delete().eq('id', log.id)
+        if (error) {
+          if (error.message?.includes('row-level security')) {
+            throw new Error('سياسة الأمان (RLS) تمنع الحذف المباشر. يرجى تطبيق سكريبت الصلاحيات في Supabase.')
+          }
+          throw error
+        }
+      }
 
       setSuccessMsg(`تم حذف حركة (${typeArabic}) للموظف (${empName}) بنجاح.`)
       fetchAttendanceLogs()
