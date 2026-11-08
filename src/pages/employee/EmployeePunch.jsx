@@ -6,11 +6,24 @@ import {
   AlertCircle, Camera, RefreshCw, X, ShieldCheck, 
   ArrowDownRight, ArrowUpLeft, Loader2, Navigation, Clock, Search, ArrowRight, Compass, Calendar
 } from 'lucide-react'
-import { getOrCreateDeviceId, calculateDistance, formatArabicDateTime } from '../../lib/utils'
+import { 
+  getOrCreateDeviceId, getOrSyncDeviceId, getDeviceSummary,
+  calculateDistance, formatArabicDateTime 
+} from '../../lib/utils'
 import { submitCheckIn } from '../../lib/checkInService'
 
 export default function EmployeePunch() {
-  const deviceId = getOrCreateDeviceId()
+  const [deviceId, setDeviceId] = useState(() => getOrCreateDeviceId())
+  const deviceSummary = getDeviceSummary()
+
+  // مزامنة واسترجاع معرف الجهاز المتين عبر (localStorage + IndexedDB + Cookie)
+  useEffect(() => {
+    getOrSyncDeviceId().then((syncedId) => {
+      if (syncedId && syncedId !== deviceId) {
+        setDeviceId(syncedId)
+      }
+    })
+  }, [])
 
   // ساعة وتاريخ النظام اللحظي
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -279,6 +292,7 @@ export default function EmployeePunch() {
       const response = await submitCheckIn({
         employee_code: verifiedEmployee.employee_code,
         device_id: deviceId,
+        device_info: deviceSummary,
         token: token || null,
         location_id: locationId || location?.id,
         lat: userCoords?.lat || null,
@@ -296,7 +310,8 @@ export default function EmployeePunch() {
           title: response.type === 'in' ? 'تم تسجيل الحضور بنجاح' : 'تم تسجيل الانصراف بنجاح',
           message: response.message,
           employee_name: response.employee_name,
-          time: new Date().toLocaleTimeString('ar-SA', {
+          time: new Date().toLocaleTimeString('ar-EG-u-ca-gregory', {
+            calendar: 'gregory',
             hour: '2-digit',
             minute: '2-digit',
             hour12: true,
@@ -445,11 +460,11 @@ export default function EmployeePunch() {
               </div>
             )}
 
-            {/* معرّف الجهاز المسجل */}
+            {/* معرّف ونوع الجهاز المسجل */}
             <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex items-center justify-between text-[11px] text-slate-500">
               <span className="flex items-center gap-1.5 font-medium">
                 <Smartphone className="w-3.5 h-3.5 text-blue-600" />
-                معرّف هذا الهاتف:
+                <span>{deviceSummary}:</span>
               </span>
               <span className="font-mono text-[10px] text-slate-700 font-bold bg-white px-2 py-0.5 rounded border border-slate-200">
                 {deviceId.slice(0, 8)}...{deviceId.slice(-4)}

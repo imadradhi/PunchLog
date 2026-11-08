@@ -6,6 +6,7 @@ import { supabase } from './supabase'
 export async function submitCheckIn({
   employee_code,
   device_id,
+  device_info,
   token,
   location_id,
   lat,
@@ -16,6 +17,7 @@ export async function submitCheckIn({
   const payload = {
     employee_code: employee_code.trim().toUpperCase(),
     device_id,
+    device_info: device_info || null,
     token: token || null,
     location_id: location_id || null,
     lat: lat !== undefined ? lat : null,
@@ -47,6 +49,7 @@ export async function submitCheckIn({
     p_lng: payload.lng,
     p_accuracy: payload.accuracy,
     p_method: payload.method,
+    p_device_info: payload.device_info,
   })
 
   if (rpcError) {

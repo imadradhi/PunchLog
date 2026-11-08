@@ -55,7 +55,8 @@ serve(async (req: Request) => {
       lat, 
       lng, 
       accuracy, 
-      method = (token ? 'qr' : 'gps') 
+      method = (token ? 'qr' : 'gps'),
+      device_info,
     } = body
 
     // 2. التحقق من اكتمال المعاملات الأساسية للموظف والجهاز
@@ -119,16 +120,68 @@ serve(async (req: Request) => {
     // 5. التحقق الصارم من ربط الجهاز (Device Binding Verification)
     const serverNow = new Date()
 
+    // 5.1 تدقيق الفرادة الصارم: التحقق هل هذا المعرف مرتبط مسبقاً بموظف آخر؟
+    const { data: conflictingEmp } = await supabase
+      .from("employees")
+      .select("id, name, employee_code")
+      .eq("device_id", device_id)
+      .neq("id", employee.id)
+      .maybeSingle()
+
+    if (conflictingEmp) {
+      const conflictReason = `محاولة استخدام هاتف مسجل مسبقاً للموظف ${conflictingEmp.name} (#${conflictingEmp.employee_code})`
+      
+      // تسجيل المحاولة المرفوضة في سجل التدقيق
+      try {
+        await supabase.from("device_binding_logs").insert({
+          employee_id: employee.id,
+          employee_name: employee.name,
+          employee_code: employee.employee_code,
+          device_id: device_id,
+          device_info: device_info || null,
+          action: "rejected_conflict",
+          status: "rejected",
+          reason: conflictReason,
+        })
+      } catch (logErr) {
+        console.warn("Could not log device conflict:", logErr)
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `هذا الجهاز مرتبط مسبقاً بحساب موظف آخر (${conflictingEmp.name} #${conflictingEmp.employee_code}). لا يمكن استخدام نفس الهاتف لأكثر من موظف نهائياً.`,
+        }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      )
+    }
+
     if (employee.device_status === "none" || !employee.device_id) {
       // أول دخول للموظف: حفظ الجهاز بحالة معلق بانتظار موافقة المدير
       await supabase
         .from("employees")
         .update({
           device_id: device_id,
+          device_info: device_info || null,
           device_status: "pending",
           device_registered_at: serverNow.toISOString(),
         })
         .eq("id", employee.id)
+
+      try {
+        await supabase.from("device_binding_logs").insert({
+          employee_id: employee.id,
+          employee_name: employee.name,
+          employee_code: employee.employee_code,
+          device_id: device_id,
+          device_info: device_info || null,
+          action: "registered",
+          status: "pending",
+          reason: "طلب ربط جهاز جديد بانتظار موافقة الإدارة",
+        })
+      } catch (logErr) {
+        console.warn("Could not log device registration:", logErr)
+      }
 
       return new Response(
         JSON.stringify({
@@ -152,6 +205,21 @@ serve(async (req: Request) => {
     }
 
     if (employee.device_status === "approved" && employee.device_id !== device_id) {
+      try {
+        await supabase.from("device_binding_logs").insert({
+          employee_id: employee.id,
+          employee_name: employee.name,
+          employee_code: employee.employee_code,
+          device_id: device_id,
+          device_info: device_info || null,
+          action: "rejected_mismatch",
+          status: "rejected",
+          reason: `محاولة بصمة من جهاز مختلف (${device_info || device_id}) غير الجهاز المعتمد للموظف`,
+        })
+      } catch (logErr) {
+        console.warn("Could not log device mismatch:", logErr)
+      }
+
       return new Response(
         JSON.stringify({
           success: false,
@@ -159,6 +227,14 @@ serve(async (req: Request) => {
         }),
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       )
+    }
+
+    // إذا كان معتمداً وجاءت معلومات جهاز ولم تكن مسجلة مسبقاً، نحدّثها
+    if (device_info && !employee.device_info) {
+      await supabase
+        .from("employees")
+        .update({ device_info })
+        .eq("id", employee.id)
     }
 
     // جلب موقع العمل الأساسي إذا لم يُمرر

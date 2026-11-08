@@ -105,7 +105,45 @@ export default function AttendanceLog() {
         query = query.gte('created_at', startOfDay).lte('created_at', endOfDay)
       }
 
-      const { data, error } = await query
+      let { data, error } = await query
+
+      // بديل ذكي في حال لم يكن عمود notes قد أضيف بعد في قاعدة البيانات
+      if (error && (error.message?.includes('notes') || error.code === '42703')) {
+        let fallbackQuery = supabase
+          .from('attendance')
+          .select(`
+            id,
+            type,
+            method,
+            lat,
+            lng,
+            accuracy,
+            created_at,
+            employees (
+              id,
+              name,
+              employee_code,
+              department
+            ),
+            locations (
+              id,
+              name
+            )
+          `)
+          .order('created_at', { ascending: false })
+
+        if (selectedEmployeeId) fallbackQuery = fallbackQuery.eq('employee_id', selectedEmployeeId)
+        if (selectedType) fallbackQuery = fallbackQuery.eq('type', selectedType)
+        if (selectedDate) {
+          const startOfDay = new Date(`${selectedDate}T00:00:00.000Z`).toISOString()
+          const endOfDay = new Date(`${selectedDate}T23:59:59.999Z`).toISOString()
+          fallbackQuery = fallbackQuery.gte('created_at', startOfDay).lte('created_at', endOfDay)
+        }
+
+        const fallbackRes = await fallbackQuery
+        data = fallbackRes.data
+        error = fallbackRes.error
+      }
 
       if (error) throw error
       setLogs(data || [])
@@ -144,7 +182,7 @@ export default function AttendanceLog() {
       setManualSubmitting(true)
       const punchDate = new Date(manualForm.datetime)
 
-      const { error } = await supabase.from('attendance').insert([
+      let { error } = await supabase.from('attendance').insert([
         {
           employee_id: manualForm.employee_id,
           location_id: manualForm.location_id || null,
@@ -155,6 +193,21 @@ export default function AttendanceLog() {
           created_at: punchDate.toISOString(),
         },
       ])
+
+      // في حال لم يكن عمود notes مضافاً بعد
+      if (error && (error.message?.includes('notes') || error.code === '42703')) {
+        const retryRes = await supabase.from('attendance').insert([
+          {
+            employee_id: manualForm.employee_id,
+            location_id: manualForm.location_id || null,
+            type: manualForm.type,
+            method: 'manual',
+            accuracy: 0,
+            created_at: punchDate.toISOString(),
+          },
+        ])
+        error = retryRes.error
+      }
 
       if (error) throw error
 
