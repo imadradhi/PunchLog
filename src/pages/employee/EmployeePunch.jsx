@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { Html5Qrcode } from 'html5-qrcode'
 import { 
   Smartphone, MapPin, User, CheckCircle2, 
-  AlertCircle, Camera, RefreshCw, X, ShieldCheck, 
+  AlertCircle, Camera, RefreshCw, X, ShieldCheck, ShieldAlert,
   ArrowDownRight, ArrowUpLeft, Loader2, Navigation, Clock, Search, ArrowRight, Compass, Calendar
 } from 'lucide-react'
 import { 
@@ -318,7 +318,13 @@ export default function EmployeePunch() {
           }),
         })
       } else {
-        if (response.is_device_pending) {
+        if (response.is_device_conflict) {
+          setPunchResult({
+            status: 'conflict',
+            title: 'هذا الجهاز مرتبط بحساب موظف آخر',
+            message: response.error,
+          })
+        } else if (response.is_device_pending) {
           setPunchResult({
             status: 'pending',
             title: 'بانتظار موافقة مدير النظام',
@@ -333,11 +339,26 @@ export default function EmployeePunch() {
         }
       }
     } catch (err) {
-      setPunchResult({
-        status: 'error',
-        title: 'خطأ في الاتصال بالخادم',
-        message: err.message || 'يرجى التحقق من اتصالك بالإنترنت والمحاولة مجدداً.',
-      })
+      const isConflict =
+        err.message?.includes('unique constraint') ||
+        err.message?.includes('duplicate key') ||
+        err.message?.includes('employees_device_id_unique_idx') ||
+        err.message?.includes('23505')
+
+      if (isConflict) {
+        setPunchResult({
+          status: 'conflict',
+          title: 'هذا الجهاز مرتبط بحساب موظف آخر',
+          message:
+            'هذا الهاتف مرتبط مسبقاً بحساب موظف آخر في النظام. لا يمكن استخدام نفس الهاتف لتسجيل البصمة لأكثر من موظف. يرجى مراجعة إدارة النظام لفك ربط الجهاز.',
+        })
+      } else {
+        setPunchResult({
+          status: 'error',
+          title: 'خطأ في الاتصال بالخادم',
+          message: err.message || 'يرجى التحقق من اتصالك بالإنترنت والمحاولة مجدداً.',
+        })
+      }
     } finally {
       setSubmitting(false)
     }
@@ -694,6 +715,8 @@ export default function EmployeePunch() {
                 ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
                 : punchResult.status === 'pending'
                 ? 'bg-amber-50 border-amber-200 text-amber-950'
+                : punchResult.status === 'conflict'
+                ? 'bg-rose-50 border-rose-300 text-rose-950'
                 : 'bg-red-50 border-red-200 text-red-950'
             }`}
           >
@@ -710,6 +733,11 @@ export default function EmployeePunch() {
               {punchResult.status === 'pending' && (
                 <div className="p-2.5 bg-amber-100 text-amber-700 rounded-2xl border border-amber-200">
                   <Smartphone className="w-6 h-6" />
+                </div>
+              )}
+              {punchResult.status === 'conflict' && (
+                <div className="p-2.5 bg-rose-100 text-rose-700 rounded-2xl border border-rose-300">
+                  <ShieldAlert className="w-6 h-6" />
                 </div>
               )}
               {punchResult.status === 'error' && (

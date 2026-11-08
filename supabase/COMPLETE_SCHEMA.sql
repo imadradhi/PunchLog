@@ -415,6 +415,21 @@ BEGIN
             CASE WHEN p_method = 'gps' THEN 'بصمة الموقع الجغرافي GPS' ELSE 'مسح باركود الشاشة QR' END
         )
     );
+EXCEPTION
+    WHEN unique_violation THEN
+        SELECT name, employee_code INTO v_other_employee
+        FROM public.employees
+        WHERE device_id = p_device_id AND id <> v_employee.id
+        LIMIT 1;
+
+        RETURN jsonb_build_object(
+            'success', false,
+            'is_device_conflict', true,
+            'error', format('هذا الجهاز مرتبط مسبقاً بحساب موظف آخر (%s #%s). لا يمكن استخدام نفس الهاتف لأكثر من موظف نهائياً.', 
+                coalesce(v_other_employee.name, 'موظف آخر'), 
+                coalesce(v_other_employee.employee_code, '')
+            )
+        );
 END;
 $$;
 
