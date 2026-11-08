@@ -153,7 +153,12 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.generate_server_qr(UUID) TO anon, authenticated;
 
--- 8. دالة التحقق وتسجيل البصمة الصارمة في الخادم (check_in_rpc)
+-- 8. إسقاط التوقيعات القديمة لدالة check_in_rpc لمنع تعارض المعاملات في PostgreSQL
+DROP FUNCTION IF EXISTS public.check_in_rpc(TEXT, UUID, TEXT, UUID, DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION);
+DROP FUNCTION IF EXISTS public.check_in_rpc(TEXT, UUID, TEXT, UUID, DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, TEXT);
+DROP FUNCTION IF EXISTS public.check_in_rpc(TEXT, UUID, TEXT, UUID, DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, TEXT, TEXT);
+
+-- دالة التحقق وتسجيل البصمة الصارمة في الخادم (check_in_rpc)
 CREATE OR REPLACE FUNCTION public.check_in_rpc(
     p_employee_code TEXT,
     p_device_id UUID,

@@ -41,7 +41,12 @@ DROP POLICY IF EXISTS "Enable all access to device_binding_logs" ON public.devic
 CREATE POLICY "Enable all access to device_binding_logs"
     ON public.device_binding_logs FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
--- 5. تحديث دالة check_in_rpc لتدقيق قيد الفرادة وتسجيل المحاولات المرفوضة
+-- 5. إسقاط التوقيعات القديمة لدالة check_in_rpc لمنع تعارض المعاملات في PostgreSQL
+DROP FUNCTION IF EXISTS public.check_in_rpc(TEXT, UUID, TEXT, UUID, DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION);
+DROP FUNCTION IF EXISTS public.check_in_rpc(TEXT, UUID, TEXT, UUID, DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, TEXT);
+DROP FUNCTION IF EXISTS public.check_in_rpc(TEXT, UUID, TEXT, UUID, DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, TEXT, TEXT);
+
+-- تحديث دالة check_in_rpc لتدقيق قيد الفرادة وتسجيل المحاولات المرفوضة
 CREATE OR REPLACE FUNCTION public.check_in_rpc(
     p_employee_code TEXT,
     p_device_id UUID,
